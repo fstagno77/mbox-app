@@ -9,7 +9,16 @@ var blobUrls = [];            // track created blob URLs for cleanup
 var ICON_TRASH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd"/></svg>';
 var ICON_PAPERCLIP = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.986 3A2.743 2.743 0 009.243.257a2.743 2.743 0 00-1.94.803L2.549 5.814a3.621 3.621 0 005.122 5.122l3.374-3.374a.75.75 0 00-1.06-1.06L6.61 9.875a2.121 2.121 0 01-3.001-3.001l4.754-4.754a1.243 1.243 0 011.758 1.758l-4.753 4.754a.364.364 0 01-.515-.515l3.374-3.374a.75.75 0 00-1.06-1.06L3.793 7.057a1.864 1.864 0 002.636 2.636l4.753-4.754A2.743 2.743 0 0011.986 3z" clip-rule="evenodd"/></svg>';
 var ICON_INBOX = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M1 11.27c0-.246.033-.492.099-.73l1.523-5.521A2.75 2.75 0 015.273 3h9.454a2.75 2.75 0 012.651 2.019l1.523 5.52c.066.239.099.485.099.732V15.25A2.75 2.75 0 0116.25 18H3.75A2.75 2.75 0 011 15.25V11.27zm3.057-5.064L2.813 10.5h3.17a1.25 1.25 0 011.114.683l.445.89a.25.25 0 00.224.14h4.468a.25.25 0 00.223-.14l.445-.89a1.25 1.25 0 011.114-.682h3.17l-1.244-4.294a1.25 1.25 0 00-1.205-.918H5.273c-.556 0-1.043.368-1.197.918l-.019.069z" clip-rule="evenodd"/></svg>';
-var ICON_FILE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V6.621a1.5 1.5 0 00-.44-1.06L10.94 2.94A1.5 1.5 0 009.878 2.5H9.5V5a1 1 0 01-1 1H5a1 1 0 01-1-1V2H3.5z"/><path d="M5 2h3v3H5V2z"/></svg>';
+var ICON_FILE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="att-icon"><path d="M7 1a2 2 0 00-2 2v18a2 2 0 002 2h10a2 2 0 002-2V7l-6-6H7z" fill="#6B7280"/><path d="M13 1v4a2 2 0 002 2h4" fill="#D1D5DB"/></svg>';
+var ICON_PDF = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="att-icon"><path d="M7 1a2 2 0 00-2 2v18a2 2 0 002 2h10a2 2 0 002-2V7l-6-6H7z" fill="#DC2626"/><path d="M13 1v4a2 2 0 002 2h4" fill="#FCA5A5"/><text x="12" y="17.5" text-anchor="middle" font-size="7" font-weight="800" fill="white" font-family="Arial,sans-serif">PDF</text></svg>';
+var ICON_IMG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="att-icon"><path d="M7 1a2 2 0 00-2 2v18a2 2 0 002 2h10a2 2 0 002-2V7l-6-6H7z" fill="#2563EB"/><path d="M13 1v4a2 2 0 002 2h4" fill="#93C5FD"/><circle cx="9.5" cy="12.5" r="1.5" fill="rgba(255,255,255,.6)"/><path d="M7 19l3-4 2 2.5 3-4L19 19H7z" fill="rgba(255,255,255,.85)"/></svg>';
+
+function getFileIcon(filename) {
+    var ext = (filename || '').split('.').pop().toLowerCase();
+    if (ext === 'pdf') return ICON_PDF;
+    if (['png','jpg','jpeg','gif','bmp','webp','svg'].indexOf(ext) !== -1) return ICON_IMG;
+    return ICON_FILE;
+}
 var ICON_SEARCH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 111.06-1.06l2.755 2.754a.75.75 0 11-1.06 1.06l-2.755-2.754zM10.5 7a3.5 3.5 0 11-7 0 3.5 3.5 0 017 0z" clip-rule="evenodd"/></svg>';
 
 /* ─── IndexedDB persistence ─── */
@@ -425,7 +434,7 @@ function renderDetail(email) {
                 a.href = '#';
                 a.title = 'Allegato non disponibile (ricarica il file .mbox)';
             }
-            a.innerHTML = ICON_FILE + ' ' + escapeHtml(att.filename) +
+            a.innerHTML = getFileIcon(att.filename) + ' ' + escapeHtml(att.filename) +
                 ' <span class="att-size">' + formatSize(att.size) + '</span>';
             attList.appendChild(a);
         });

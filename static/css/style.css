@@ -613,21 +613,21 @@ html, body {
 .att-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
+    gap: 5px;
+    padding: 5px 10px;
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    font-size: 13px;
+    border-radius: 6px;
+    font-size: 12px;
     text-decoration: none;
     font-weight: 500;
     transition: all var(--transition);
 }
 
 .att-icon {
-    width: 20px;
-    height: 20px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
 }
 
