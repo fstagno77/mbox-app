@@ -18,7 +18,6 @@ export default async (req) => {
       const { blobs } = await store.list();
       const emails = {};
       const keys = blobs.map((b) => b.key);
-      // Fetch in parallel, batched by 20
       for (let i = 0; i < keys.length; i += 20) {
         const chunk = keys.slice(i, i + 20);
         const results = await Promise.all(
@@ -56,8 +55,4 @@ export default async (req) => {
   }
 
   return Response.json({ error: "Method not allowed" }, { status: 405 });
-};
-
-export const config = {
-  path: "/api/emails",
 };

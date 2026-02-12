@@ -19,7 +19,3 @@ export default async (req) => {
 
   return Response.json({ error: "Method not allowed" }, { status: 405 });
 };
-
-export const config = {
-  path: "/api/catalog",
-};

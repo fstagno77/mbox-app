@@ -3,13 +3,10 @@ import { getStore } from "@netlify/blobs";
 export default async (req) => {
   const store = getStore({ name: "attachments", consistency: "strong" });
   const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  // Paths: /api/attachments/:emailId/:filename (GET)
-  //        /api/attachments/:emailId (POST, DELETE)
+  const emailId = url.searchParams.get("emailId");
+  const filename = url.searchParams.get("filename");
 
-  if (req.method === "GET" && pathParts.length >= 4) {
-    const emailId = pathParts[2];
-    const filename = decodeURIComponent(pathParts.slice(3).join("/"));
+  if (req.method === "GET" && emailId && filename) {
     const key = emailId + "/" + filename;
     const blob = await store.get(key, { type: "arrayBuffer" });
     if (!blob) {
@@ -21,20 +18,17 @@ export default async (req) => {
     return new Response(blob, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition":
-          'attachment; filename="' + filename + '"',
+        "Content-Disposition": 'attachment; filename="' + filename + '"',
       },
     });
   }
 
-  if (req.method === "POST" && pathParts.length >= 3) {
-    const emailId = pathParts[2];
+  if (req.method === "POST" && emailId) {
     const { attachments } = await req.json();
     let saved = 0;
     for (const att of attachments || []) {
       if (!att.data) continue;
       const key = emailId + "/" + att.filename;
-      // Decode base64 to binary
       const binaryStr = atob(att.data);
       const bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) {
@@ -50,8 +44,7 @@ export default async (req) => {
     return Response.json({ status: "ok", saved });
   }
 
-  if (req.method === "DELETE" && pathParts.length >= 3) {
-    const emailId = pathParts[2];
+  if (req.method === "DELETE" && emailId) {
     const { blobs } = await store.list({ prefix: emailId + "/" });
     for (const blob of blobs) {
       await store.delete(blob.key);
@@ -59,9 +52,5 @@ export default async (req) => {
     return Response.json({ status: "ok", deleted: blobs.length });
   }
 
-  return Response.json({ error: "Not found" }, { status: 404 });
-};
-
-export const config = {
-  path: "/api/attachments/*",
+  return Response.json({ error: "Bad request" }, { status: 400 });
 };

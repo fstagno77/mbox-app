@@ -22,45 +22,47 @@ function getFileIcon(filename) {
 var ICON_SEARCH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 111.06-1.06l2.755 2.754a.75.75 0 11-1.06 1.06l-2.755-2.754zM10.5 7a3.5 3.5 0 11-7 0 3.5 3.5 0 017 0z" clip-rule="evenodd"/></svg>';
 
 /* ─── Remote API client (Netlify Functions + Blobs) ─── */
-var API_BASE = '/api';
+var API_BASE = '/.netlify/functions';
+
+function apiCall(name, url, opts) {
+    return fetch(url, opts).then(function (res) {
+        console.log('[API ' + name + '] ' + (opts && opts.method || 'GET') + ' ' + url + ' → ' + res.status);
+        return res;
+    }).catch(function (e) {
+        console.error('[API ' + name + '] NETWORK ERROR:', e);
+        return null;
+    });
+}
 
 var api = {
     getCatalog: function () {
-        return fetch(API_BASE + '/catalog').then(function (res) {
-            if (!res.ok) return null;
+        return apiCall('getCatalog', API_BASE + '/catalog').then(function (res) {
+            if (!res || !res.ok) return null;
             return res.json();
-        }).catch(function (e) { console.warn('API getCatalog failed:', e); return null; });
+        });
     },
 
     saveCatalog: function (catalogObj) {
-        return fetch(API_BASE + '/catalog', {
+        return apiCall('saveCatalog', API_BASE + '/catalog', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(catalogObj),
-        }).catch(function (e) { console.warn('API saveCatalog failed:', e); });
+        });
     },
 
     getAllEmails: function () {
-        return fetch(API_BASE + '/emails?all=true').then(function (res) {
-            if (!res.ok) return null;
+        return apiCall('getAllEmails', API_BASE + '/emails?all=true').then(function (res) {
+            if (!res || !res.ok) return null;
             return res.json();
-        }).catch(function (e) { console.warn('API getAllEmails failed:', e); return null; });
+        });
     },
 
     saveEmails: function (emailsObj) {
-        return fetch(API_BASE + '/emails', {
+        return apiCall('saveEmails', API_BASE + '/emails', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ emails: emailsObj }),
-        }).catch(function (e) { console.warn('API saveEmails failed:', e); });
-    },
-
-    deleteEmails: function (ids) {
-        return fetch(API_BASE + '/emails', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: ids }),
-        }).catch(function (e) { console.warn('API deleteEmails failed:', e); });
+        });
     },
 
     saveAttachments: function (emailId, attachments) {
@@ -79,17 +81,17 @@ var api = {
                 };
             });
         if (toSend.length === 0) return Promise.resolve();
-        return fetch(API_BASE + '/attachments/' + emailId, {
+        return apiCall('saveAttachments', API_BASE + '/attachments?emailId=' + emailId, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ attachments: toSend }),
-        }).catch(function (e) { console.warn('API saveAttachments failed:', e); });
+        });
     },
 
     deleteSource: function (sourceId) {
-        return fetch(API_BASE + '/sources/' + sourceId, { method: 'DELETE' })
-            .then(function (res) { return res.ok; })
-            .catch(function (e) { console.warn('API deleteSource failed:', e); return false; });
+        return apiCall('deleteSource', API_BASE + '/sources?id=' + sourceId, {
+            method: 'DELETE',
+        }).then(function (res) { return res && res.ok; });
     },
 };
 
@@ -589,7 +591,7 @@ function renderDetail(email) {
                 a.download = att.filename;
             } else {
                 // Fallback: download from remote API
-                a.href = '/api/attachments/' + email.email_id + '/' + encodeURIComponent(att.filename);
+                a.href = '/.netlify/functions/attachments?emailId=' + email.email_id + '&filename=' + encodeURIComponent(att.filename);
                 a.download = att.filename;
             }
             a.innerHTML = getFileIcon(att.filename) + ' ' + escapeHtml(att.filename) +
@@ -612,7 +614,7 @@ function renderDetail(email) {
                     blobUrls.push(imgUrl);
                 } else {
                     // Fallback: use remote API for inline images
-                    imgUrl = '/api/attachments/' + email.email_id + '/' + encodeURIComponent(att.filename);
+                    imgUrl = '/.netlify/functions/attachments?emailId=' + email.email_id + '&filename=' + encodeURIComponent(att.filename);
                 }
                 bodyHtml = bodyHtml.split('cid:' + att.content_id).join(imgUrl);
             }

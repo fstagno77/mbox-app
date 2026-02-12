@@ -6,10 +6,9 @@ export default async (req) => {
   }
 
   const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const sourceId = pathParts[2];
+  const sourceId = url.searchParams.get("id");
   if (!sourceId) {
-    return Response.json({ error: "Missing source_id" }, { status: 400 });
+    return Response.json({ error: "Missing source id" }, { status: 400 });
   }
 
   const catalogStore = getStore({ name: "catalog", consistency: "strong" });
@@ -31,7 +30,6 @@ export default async (req) => {
     return Response.json({ error: "Source not found" }, { status: 404 });
   }
 
-  // Find exclusive email IDs
   const removedIds = new Set(
     (target.emails_summary || []).map((e) => e.email_id)
   );
@@ -41,7 +39,6 @@ export default async (req) => {
   }
   const exclusiveIds = [...removedIds].filter((id) => !keptIds.has(id));
 
-  // Delete exclusive emails and their attachments
   for (const eid of exclusiveIds) {
     await emailStore.delete(eid);
     const { blobs } = await attStore.list({ prefix: eid + "/" });
@@ -50,15 +47,10 @@ export default async (req) => {
     }
   }
 
-  // Update catalog
   catalog.sources = remaining;
   catalog.total_sources = remaining.length;
   catalog.total_emails = remaining.reduce((s, src) => s + src.email_count, 0);
   await catalogStore.setJSON("main", catalog);
 
   return Response.json({ status: "ok", deleted_emails: exclusiveIds.length });
-};
-
-export const config = {
-  path: "/api/sources/*",
 };
