@@ -151,7 +151,11 @@ function processFile(file) {
                     emailStore[id] = result.emailDataMap[id];
                 });
 
-                // Add source
+                // Clear "new" flag from previous sources
+                catalog.sources.forEach(function (s) { s.isNew = false; });
+
+                // Add source marked as new
+                result.source.isNew = true;
                 catalog.sources.push(result.source);
                 catalog.total_sources = catalog.sources.length;
                 catalog.total_emails = catalog.sources.reduce(function (s, src) {
@@ -277,16 +281,15 @@ function renderSources(sources) {
         return;
     }
 
-    var autoExpand = sources.length === 1;
-
     sources.forEach(function (source) {
         var sourceHeader = document.createElement('div');
-        sourceHeader.className = 'source-header' + (autoExpand ? ' open' : '');
+        sourceHeader.className = 'source-header';
+        var newBadge = source.isNew ? '<span class="new-badge">New</span>' : '';
         sourceHeader.innerHTML =
             '<span class="source-arrow">&#9654;</span>' +
             '<div class="source-icon">' + ICON_INBOX + '</div>' +
             '<div class="source-info">' +
-                '<span class="source-name" title="' + escapeHtml(source.source_file) + '">' + escapeHtml(source.source_file) + '</span>' +
+                '<span class="source-name" title="' + escapeHtml(source.source_file) + '">' + escapeHtml(source.source_file) + newBadge + '</span>' +
                 '<div class="source-meta">' +
                     '<span class="source-date">' + escapeHtml(source.uploaded_at || '') + '</span>' +
                     '<span class="source-count">' + source.email_count + ' email</span>' +
@@ -295,7 +298,7 @@ function renderSources(sources) {
             '<button class="delete-source-btn" title="Elimina sorgente">' + ICON_TRASH + '</button>';
 
         var sourceContent = document.createElement('div');
-        sourceContent.className = 'source-content' + (autoExpand ? ' open' : '');
+        sourceContent.className = 'source-content';
 
         var summaryMap = {};
         (source.emails_summary || []).forEach(function (s) { summaryMap[s.email_id] = s; });
