@@ -4,6 +4,9 @@ var catalog = { total_emails: 0, total_sources: 0, sources: [] };
 var emailStore = {};          // email_id → full email object (with attachment data)
 var currentEmailId = null;
 var blobUrls = [];            // track created blob URLs for cleanup
+var virtualList = null;       // VirtualList instance for sidebar
+var openSources = {};         // source_id → true if expanded
+var openGroups = {};          // group_id → true if expanded
 
 /* ─── SVG Icons ─── */
 var ICON_TRASH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd"/></svg>';
@@ -492,112 +495,212 @@ function renderStats() {
         total + ' email in ' + n + ' sorgent' + (n === 1 ? 'e' : 'i');
 }
 
-function renderSources(sources) {
-    var container = document.getElementById('groups-list');
-    container.innerHTML = '';
-
-    if (!sources || sources.length === 0) {
-        container.innerHTML = '<div style="padding:32px 20px;color:#9ca3af;text-align:center;font-size:13px;">Nessuna sorgente disponibile.</div>';
-        return;
-    }
+function flattenSources(sources) {
+    var flat = [];
+    if (!sources) return flat;
 
     sources.forEach(function (source) {
-        var sourceHeader = document.createElement('div');
-        sourceHeader.className = 'source-header';
-        var newBadge = source.isNew ? '<span class="new-badge">New</span>' : '';
-        sourceHeader.innerHTML =
-            '<span class="source-arrow">&#9654;</span>' +
-            '<div class="source-icon">' + ICON_INBOX + '</div>' +
-            '<div class="source-info">' +
-                '<span class="source-name" title="' + escapeHtml(source.source_file) + '">' + escapeHtml(source.source_file) + newBadge + '</span>' +
-                '<div class="source-meta">' +
-                    '<span class="source-date">' + escapeHtml(source.uploaded_at || '') + '</span>' +
-                    '<span class="source-count">' + source.email_count + ' email</span>' +
-                '</div>' +
-            '</div>' +
-            '<button class="delete-source-btn" title="Elimina sorgente">' + ICON_TRASH + '</button>';
-
-        var sourceContent = document.createElement('div');
-        sourceContent.className = 'source-content';
-
         var summaryMap = {};
         (source.emails_summary || []).forEach(function (s) { summaryMap[s.email_id] = s; });
 
-        (source.groups || []).forEach(function (group) {
-            var header = document.createElement('div');
-            header.className = 'group-header';
-            header.innerHTML =
-                '<span class="arrow">&#9654;</span>' +
-                '<span class="group-label" title="' + escapeHtml(group.label) + '">' + escapeHtml(group.label) + '</span>' +
-                '<span class="count">' + group.email_ids.length + '</span>';
+        flat.push({
+            type: 'source-header',
+            _key: 'sh_' + source.source_id,
+            source: source
+        });
 
-            var emailsDiv = document.createElement('div');
-            emailsDiv.className = 'group-emails';
+        if (!openSources[source.source_id]) return;
+
+        (source.groups || []).forEach(function (group) {
+            flat.push({
+                type: 'group-header',
+                _key: 'gh_' + source.source_id + '_' + group.group_id,
+                group: group,
+                sourceId: source.source_id
+            });
+
+            var gkey = source.source_id + '_' + group.group_id;
+            if (!openGroups[gkey]) return;
 
             group.email_ids.forEach(function (eid) {
                 var s = summaryMap[eid];
                 if (!s) return;
-                var item = document.createElement('div');
-                item.className = 'email-item';
-                item.dataset.emailId = eid;
+                flat.push({
+                    type: 'email-item',
+                    _key: 'ei_' + eid,
+                    summary: s,
+                    emailId: eid
+                });
+            });
+        });
+    });
+    return flat;
+}
 
-                var senderName = s.sender;
-                var atIdx = senderName.indexOf('@');
-                if (atIdx > 0) senderName = senderName.substring(0, atIdx);
-                senderName = senderName.charAt(0).toUpperCase() + senderName.slice(1);
+function initVirtualList() {
+    var container = document.getElementById('groups-list');
+    var scrollContainer = document.getElementById('sidebar');
 
-                var badges = '';
-                if (s.attachment_count > 0) {
-                    badges = '<div class="email-badges"><span class="att-badge">' +
-                        ICON_PAPERCLIP + ' ' + s.attachment_count + '</span></div>';
-                }
+    if (virtualList) virtualList.destroy();
 
-                item.innerHTML =
-                    '<div class="email-sender">' +
-                        '<span class="email-sender-name">' + escapeHtml(senderName) + '</span>' +
-                        '<span class="email-date">' + escapeHtml(s.date) + '</span>' +
+    virtualList = new VirtualList(container, scrollContainer, {
+        sourceHeader: function (item) {
+            var source = item.source;
+            var el = document.createElement('div');
+            el.className = 'source-header' + (openSources[source.source_id] ? ' open' : '');
+            el.dataset.sourceId = source.source_id;
+            var newBadge = source.isNew ? '<span class="new-badge">New</span>' : '';
+            el.innerHTML =
+                '<span class="source-arrow">&#9654;</span>' +
+                '<div class="source-icon">' + ICON_INBOX + '</div>' +
+                '<div class="source-info">' +
+                    '<span class="source-name" title="' + escapeHtml(source.source_file) + '">' + escapeHtml(source.source_file) + newBadge + '</span>' +
+                    '<div class="source-meta">' +
+                        '<span class="source-date">' + escapeHtml(source.uploaded_at || '') + '</span>' +
+                        '<span class="source-count">' + source.email_count + ' email</span>' +
                     '</div>' +
-                    '<div class="email-subject">' + escapeHtml(s.subject) + '</div>' +
-                    badges;
+                '</div>' +
+                '<button class="delete-source-btn" title="Elimina sorgente">' + ICON_TRASH + '</button>';
+            return el;
+        },
 
-                item.addEventListener('click', function () { loadEmail(eid); });
-                emailsDiv.appendChild(item);
-            });
+        groupHeader: function (item) {
+            var group = item.group;
+            var gkey = item.sourceId + '_' + group.group_id;
+            var el = document.createElement('div');
+            el.className = 'group-header' + (openGroups[gkey] ? ' open' : '');
+            el.dataset.sourceId = item.sourceId;
+            el.dataset.groupId = group.group_id;
+            el.innerHTML =
+                '<span class="arrow">&#9654;</span>' +
+                '<span class="group-label" title="' + escapeHtml(group.label) + '">' + escapeHtml(group.label) + '</span>' +
+                '<span class="count">' + group.email_ids.length + '</span>';
+            return el;
+        },
 
-            header.addEventListener('click', function () {
-                header.classList.toggle('open');
-                emailsDiv.classList.toggle('open');
-            });
+        emailItem: function (item) {
+            var s = item.summary;
+            var el = document.createElement('div');
+            el.className = 'email-item' + (currentEmailId === item.emailId ? ' active' : '');
+            el.dataset.emailId = item.emailId;
 
-            // Auto-open small groups
-            if (group.email_ids.length <= 3) {
-                header.classList.add('open');
-                emailsDiv.classList.add('open');
+            var senderName = s.sender;
+            var atIdx = senderName.indexOf('@');
+            if (atIdx > 0) senderName = senderName.substring(0, atIdx);
+            senderName = senderName.charAt(0).toUpperCase() + senderName.slice(1);
+
+            var badges = '';
+            if (s.attachment_count > 0) {
+                badges = '<div class="email-badges"><span class="att-badge">' +
+                    ICON_PAPERCLIP + ' ' + s.attachment_count + '</span></div>';
             }
 
-            sourceContent.appendChild(header);
-            sourceContent.appendChild(emailsDiv);
-        });
-
-        sourceHeader.addEventListener('click', function (e) {
-            if (e.target.closest('.delete-source-btn')) return;
-            sourceHeader.classList.toggle('open');
-            sourceContent.classList.toggle('open');
-        });
-
-        sourceHeader.querySelector('.delete-source-btn').addEventListener('click', function (e) {
-            e.stopPropagation();
-            handleDeleteSource(source.source_id, source.source_file);
-        });
-
-        container.appendChild(sourceHeader);
-        container.appendChild(sourceContent);
+            el.innerHTML =
+                '<div class="email-sender">' +
+                    '<span class="email-sender-name">' + escapeHtml(senderName) + '</span>' +
+                    '<span class="email-date">' + escapeHtml(s.date) + '</span>' +
+                '</div>' +
+                '<div class="email-subject">' + escapeHtml(s.subject) + '</div>' +
+                badges;
+            return el;
+        }
     });
+
+    // Event delegation for clicks on the container
+    container.addEventListener('click', function (e) {
+        var target = e.target;
+
+        // Delete source button
+        var deleteBtn = target.closest('.delete-source-btn');
+        if (deleteBtn) {
+            e.stopPropagation();
+            var srcHeader = deleteBtn.closest('.source-header');
+            if (srcHeader) handleDeleteSource(srcHeader.dataset.sourceId,
+                catalog.sources.filter(function (s) { return s.source_id === srcHeader.dataset.sourceId; })[0].source_file);
+            return;
+        }
+
+        // Source header toggle
+        var srcH = target.closest('.source-header');
+        if (srcH) {
+            var sid = srcH.dataset.sourceId;
+            openSources[sid] = !openSources[sid];
+            // Auto-open small groups when source is opened
+            if (openSources[sid]) {
+                var src = _currentSources.filter(function (s) { return s.source_id === sid; })[0];
+                if (src) {
+                    (src.groups || []).forEach(function (g) {
+                        var gk = sid + '_' + g.group_id;
+                        if (!(gk in openGroups) && g.email_ids.length <= 3) openGroups[gk] = true;
+                    });
+                }
+            }
+            rebuildVirtualList();
+            return;
+        }
+
+        // Group header toggle
+        var grpH = target.closest('.group-header');
+        if (grpH) {
+            var gkey = grpH.dataset.sourceId + '_' + grpH.dataset.groupId;
+            openGroups[gkey] = !openGroups[gkey];
+            rebuildVirtualList();
+            return;
+        }
+
+        // Email item click
+        var emailItem = target.closest('.email-item');
+        if (emailItem && emailItem.dataset.emailId) {
+            loadEmail(emailItem.dataset.emailId);
+            return;
+        }
+    });
+}
+
+var _currentSources = [];
+
+function rebuildVirtualList() {
+    if (!virtualList) return;
+    var flat = flattenSources(_currentSources);
+    virtualList.setData(flat);
+}
+
+function renderSources(sources) {
+    _currentSources = sources || [];
+    var container = document.getElementById('groups-list');
+
+    if (!sources || sources.length === 0) {
+        if (virtualList) virtualList.destroy();
+        virtualList = null;
+        container.style.position = '';
+        container.style.height = '';
+        container.innerHTML = '<div style="padding:32px 20px;color:#9ca3af;text-align:center;font-size:13px;">Nessuna sorgente disponibile.</div>';
+        return;
+    }
+
+    // Auto-open new sources and their small groups
+    sources.forEach(function (source) {
+        if (source.isNew || !(source.source_id in openSources)) {
+            openSources[source.source_id] = true;
+        }
+        if (openSources[source.source_id]) {
+            (source.groups || []).forEach(function (g) {
+                var gk = source.source_id + '_' + g.group_id;
+                if (!(gk in openGroups) && g.email_ids.length <= 3) {
+                    openGroups[gk] = true;
+                }
+            });
+        }
+    });
+
+    if (!virtualList) initVirtualList();
+    rebuildVirtualList();
 }
 
 /* ─── Email detail ─── */
 
 function loadEmail(emailId) {
+    // Update active state in virtual list
     document.querySelectorAll('.email-item.active').forEach(function (el) {
         el.classList.remove('active');
     });
@@ -773,7 +876,12 @@ function searchEmails(query) {
     });
 
     if (results.length === 0) {
-        document.getElementById('groups-list').innerHTML =
+        if (virtualList) virtualList.destroy();
+        virtualList = null;
+        var gl = document.getElementById('groups-list');
+        gl.style.position = '';
+        gl.style.height = '';
+        gl.innerHTML =
             '<div style="padding:32px 20px;color:#9ca3af;text-align:center;font-size:13px;">Nessun risultato per "' +
             escapeHtml(query) + '"</div>';
         return;
@@ -787,13 +895,13 @@ function searchEmails(query) {
         groups: [{ group_id: 'search', label: 'Risultati', email_ids: results.map(function (r) { return r.email_id; }) }],
         emails_summary: results,
     };
+
+    // Auto-open search results in the virtual list
+    openSources['search'] = true;
+    openGroups['search_search'] = true;
+
     renderSources([fakeSource]);
     document.getElementById('sidebar').classList.add('search-active');
-
-    document.querySelectorAll('.source-header').forEach(function (h) { h.classList.add('open'); });
-    document.querySelectorAll('.source-content').forEach(function (c) { c.classList.add('open'); });
-    document.querySelectorAll('.group-header').forEach(function (h) { h.classList.add('open'); });
-    document.querySelectorAll('.group-emails').forEach(function (g) { g.classList.add('open'); });
 }
 
 /* ─── Tab switching ─── */

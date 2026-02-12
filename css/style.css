@@ -390,6 +390,17 @@ html, body {
     display: block;
 }
 
+/* Virtual list container */
+#groups-list {
+    position: relative;
+}
+
+#groups-list > .source-header,
+#groups-list > .group-header,
+#groups-list > .email-item {
+    box-sizing: border-box;
+}
+
 /* Email items */
 .email-item {
     padding: 12px 16px 12px 20px;
