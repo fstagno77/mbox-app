@@ -1,12 +1,38 @@
 /* MBOX Archive — client-side SPA */
 
 var catalog = { total_emails: 0, total_sources: 0, sources: [] };
-var emailStore = {};          // email_id → full email object (with attachment data)
+var emailStore = {};          // email_id → metadata only (no body/attachments)
 var currentEmailId = null;
 var blobUrls = [];            // track created blob URLs for cleanup
 var virtualList = null;       // VirtualList instance for sidebar
 var openSources = {};         // source_id → true if expanded
 var openGroups = {};          // group_id → true if expanded
+
+/* ─── LRU Cache for full email objects ─── */
+var EMAIL_CACHE_SIZE = 50;
+var emailCache = {};
+var emailCacheOrder = [];
+
+function cacheGet(emailId) {
+    if (!emailCache[emailId]) return null;
+    var idx = emailCacheOrder.indexOf(emailId);
+    if (idx !== -1) emailCacheOrder.splice(idx, 1);
+    emailCacheOrder.push(emailId);
+    return emailCache[emailId];
+}
+
+function cachePut(emailId, email) {
+    if (emailCache[emailId]) {
+        var idx = emailCacheOrder.indexOf(emailId);
+        if (idx !== -1) emailCacheOrder.splice(idx, 1);
+    }
+    emailCache[emailId] = email;
+    emailCacheOrder.push(emailId);
+    while (emailCacheOrder.length > EMAIL_CACHE_SIZE) {
+        var evicted = emailCacheOrder.shift();
+        delete emailCache[evicted];
+    }
+}
 
 /* ─── SVG Icons ─── */
 var ICON_TRASH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd"/></svg>';
@@ -118,15 +144,22 @@ function openDB() {
     });
 }
 
-function saveToDB() {
+function saveCatalogToDB() {
     if (!db) return;
     try {
-        var tx = db.transaction(['catalog', 'emails'], 'readwrite');
+        var tx = db.transaction(['catalog'], 'readwrite');
         tx.objectStore('catalog').put({ id: 'main', data: catalog });
+    } catch (e) { console.warn('IDB catalog save failed:', e); }
+}
+
+function saveEmailsToDB(emailDataMap) {
+    if (!db) return;
+    try {
+        var tx = db.transaction(['emails'], 'readwrite');
         var es = tx.objectStore('emails');
-        Object.keys(emailStore).forEach(function (id) {
+        Object.keys(emailDataMap).forEach(function (id) {
             // Strip binary attachment data before storing (too large for IDB)
-            var copy = Object.assign({}, emailStore[id]);
+            var copy = Object.assign({}, emailDataMap[id]);
             copy.attachments = (copy.attachments || []).map(function (a) {
                 var c = Object.assign({}, a);
                 delete c.data;
@@ -134,27 +167,57 @@ function saveToDB() {
             });
             es.put(copy);
         });
-    } catch (e) { console.warn('IDB save failed:', e); }
+    } catch (e) { console.warn('IDB emails save failed:', e); }
+}
+
+function saveToDB() {
+    saveCatalogToDB();
+}
+
+function loadEmailFromDB(emailId) {
+    if (!db) return Promise.resolve(null);
+    return new Promise(function (resolve) {
+        try {
+            var tx = db.transaction(['emails'], 'readonly');
+            var req = tx.objectStore('emails').get(emailId);
+            req.onsuccess = function () { resolve(req.result || null); };
+            req.onerror = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+    });
 }
 
 function loadFromDB() {
     if (!db) return Promise.resolve(false);
     return new Promise(function (resolve) {
         try {
-            var tx = db.transaction(['catalog', 'emails'], 'readonly');
+            var tx = db.transaction(['catalog'], 'readonly');
             var cr = tx.objectStore('catalog').get('main');
             cr.onsuccess = function () {
                 if (!cr.result) return resolve(false);
                 catalog = cr.result.data;
-                var er = tx.objectStore('emails').getAll();
-                er.onsuccess = function () {
-                    (er.result || []).forEach(function (e) { emailStore[e.email_id] = e; });
-                    resolve(true);
-                };
-                er.onerror = function () { resolve(true); };
+                populateStoreFromCatalog();
+                resolve(true);
             };
             cr.onerror = function () { resolve(false); };
         } catch (e) { resolve(false); }
+    });
+}
+
+function populateStoreFromCatalog() {
+    emailStore = {};
+    (catalog.sources || []).forEach(function (source) {
+        (source.emails_summary || []).forEach(function (s) {
+            emailStore[s.email_id] = {
+                email_id: s.email_id,
+                subject: s.subject,
+                sender: s.sender,
+                date: s.date,
+                clean_subject: s.clean_subject,
+                attachment_count: s.attachment_count,
+                pec_provider: s.pec_provider,
+                source_file: s.source_file
+            };
+        });
     });
 }
 
@@ -217,16 +280,15 @@ async function init() {
     if (remoteCatalog !== null) {
         // API responded — trust remote as source of truth
         catalog = remoteCatalog;
+        populateStoreFromCatalog();
+        saveCatalogToDB();
+
+        // Background: download full emails to IDB for offline access
         if (remoteCatalog.sources && remoteCatalog.sources.length > 0) {
-            var remoteEmails = await api.getAllEmails();
-            if (remoteEmails) {
-                emailStore = remoteEmails;
-            }
-        } else {
-            emailStore = {};
+            api.getAllEmails().then(function (remoteEmails) {
+                if (remoteEmails) saveEmailsToDB(remoteEmails);
+            });
         }
-        // Update local IDB cache to match remote
-        saveToDB();
     } else {
         // API unreachable — fall back to local IndexedDB (offline mode)
         await loadFromDB();
@@ -264,9 +326,21 @@ function hideWelcome() {
 }
 
 function handleParseResult(result) {
-    // Store emails
+    // Store only metadata in emailStore; cache full emails in LRU
     Object.keys(result.emailDataMap).forEach(function (id) {
-        emailStore[id] = result.emailDataMap[id];
+        var email = result.emailDataMap[id];
+        emailStore[id] = {
+            email_id: email.email_id,
+            subject: email.subject,
+            sender: email.sender,
+            recipients: email.recipients,
+            date: email.date,
+            clean_subject: email.clean_subject,
+            attachment_count: (email.attachments || []).length,
+            pec_provider: email.pec_provider,
+            source_file: email.source_file
+        };
+        cachePut(id, email);
     });
 
     // Clear "new" flag from previous sources
@@ -283,7 +357,8 @@ function handleParseResult(result) {
     hideWelcome();
     renderStats();
     renderSources(catalog.sources);
-    saveToDB();
+    saveCatalogToDB();
+    saveEmailsToDB(result.emailDataMap);
 
     // Sync to remote API (fire-and-forget)
     api.saveCatalog(catalog);
@@ -460,7 +535,12 @@ async function handleDeleteSource(sourceId, sourceFile) {
         (s.emails_summary || []).forEach(function (e) { keptIds.add(e.email_id); });
     });
     removedIds.forEach(function (id) {
-        if (!keptIds.has(id)) delete emailStore[id];
+        if (!keptIds.has(id)) {
+            delete emailStore[id];
+            delete emailCache[id];
+            var ci = emailCacheOrder.indexOf(id);
+            if (ci !== -1) emailCacheOrder.splice(ci, 1);
+        }
     });
 
     catalog.sources = remaining;
@@ -699,7 +779,7 @@ function renderSources(sources) {
 
 /* ─── Email detail ─── */
 
-function loadEmail(emailId) {
+async function loadEmail(emailId) {
     // Update active state in virtual list
     document.querySelectorAll('.email-item.active').forEach(function (el) {
         el.classList.remove('active');
@@ -707,12 +787,26 @@ function loadEmail(emailId) {
     var active = document.querySelector('[data-email-id="' + emailId + '"]');
     if (active) active.classList.add('active');
 
-    var email = emailStore[emailId];
-    if (!email) return;
-
     currentEmailId = emailId;
-    renderDetail(email);
     mobileShowDetail();
+
+    // 1. LRU cache
+    var email = cacheGet(emailId);
+    if (email && email.body_html !== undefined) {
+        renderDetail(email);
+        return;
+    }
+
+    // 2. IndexedDB
+    email = await loadEmailFromDB(emailId);
+    if (email) {
+        cachePut(emailId, email);
+        renderDetail(email);
+        return;
+    }
+
+    // 3. Fallback: metadata from emailStore
+    renderDetail(emailStore[emailId] || { email_id: emailId, subject: '(Caricamento...)' });
 }
 
 function getInitials(sender) {
@@ -856,22 +950,13 @@ function searchEmails(query) {
     var seen = {};
     var results = [];
 
+    // TODO: full-text search via search index (prompt 04)
     allSummaries.forEach(function (summary) {
         if (seen[summary.email_id]) return;
         var searchable = [summary.subject || '', summary.sender || '', summary.clean_subject || ''].join(' ').toLowerCase();
         if (searchable.indexOf(q) !== -1) {
             results.push(summary);
             seen[summary.email_id] = true;
-            return;
-        }
-        // Search in body
-        var email = emailStore[summary.email_id];
-        if (email) {
-            var body = [email.body_text || '', email.body_html || ''].join(' ').toLowerCase();
-            if (body.indexOf(q) !== -1) {
-                results.push(summary);
-                seen[summary.email_id] = true;
-            }
         }
     });
 
