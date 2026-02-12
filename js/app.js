@@ -164,6 +164,42 @@ function clearDB() {
     } catch (e) { /* ignore */ }
 }
 
+/* ─── Mobile navigation ─── */
+
+function isMobile() {
+    return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function mobileShowDetail() {
+    if (!isMobile()) return;
+    document.querySelector('.main-layout').classList.add('mobile-detail-open');
+    // Push history state so the hardware/browser back button works
+    history.pushState({ mobileView: 'detail' }, '');
+}
+
+function mobileShowList() {
+    document.querySelector('.main-layout').classList.remove('mobile-detail-open');
+}
+
+function setupMobileNav() {
+    document.getElementById('mobile-back-btn').addEventListener('click', function () {
+        mobileShowList();
+    });
+
+    window.addEventListener('popstate', function (e) {
+        if (isMobile() && document.querySelector('.main-layout').classList.contains('mobile-detail-open')) {
+            mobileShowList();
+        }
+    });
+
+    // If window resizes from mobile to desktop, ensure clean state
+    window.addEventListener('resize', function () {
+        if (!isMobile()) {
+            document.querySelector('.main-layout').classList.remove('mobile-detail-open');
+        }
+    });
+}
+
 /* ─── Init ─── */
 document.addEventListener('DOMContentLoaded', init);
 
@@ -202,6 +238,7 @@ async function init() {
     setupSearch();
     setupUpload();
     setupDragDrop();
+    setupMobileNav();
 }
 
 /* ─── File handling ─── */
@@ -406,6 +443,7 @@ async function handleDeleteSource(sourceId, sourceFile) {
         if (wb) wb.style.display = '';
         document.getElementById('empty-state').style.display = 'flex';
         document.getElementById('email-detail').style.display = 'none';
+        mobileShowList();
         clearDB();
     } else {
         saveToDB();
@@ -538,6 +576,7 @@ function loadEmail(emailId) {
 
     currentEmailId = emailId;
     renderDetail(email);
+    mobileShowDetail();
 }
 
 function getInitials(sender) {
