@@ -92,25 +92,39 @@ function apiCall(name, url, opts) {
 }
 
 var api = {
-    getCatalog: function () {
-        return apiCall('getCatalog', API_BASE + '/catalog').then(function (res) {
+    getCatalogMeta: function () {
+        return apiCall('getCatalogMeta', API_BASE + '/catalog').then(function (res) {
             if (!res || !res.ok) return null;
             return res.json();
         });
     },
 
-    saveCatalog: function (catalogObj) {
-        return apiCall('saveCatalog', API_BASE + '/catalog', {
+    getCatalogSource: function (sourceId) {
+        return apiCall('getCatalogSource', API_BASE + '/catalog?sourceId=' + sourceId).then(function (res) {
+            if (!res || !res.ok) return null;
+            return res.json();
+        });
+    },
+
+    saveCatalogMeta: function (meta) {
+        return apiCall('saveCatalogMeta', API_BASE + '/catalog', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(catalogObj),
+            body: JSON.stringify(meta),
         });
     },
 
-    getAllEmails: function () {
-        return apiCall('getAllEmails', API_BASE + '/emails?all=true').then(function (res) {
-            if (!res || !res.ok) return null;
-            return res.json();
+    saveCatalogSource: function (sourceId, source) {
+        return apiCall('saveCatalogSource', API_BASE + '/catalog?sourceId=' + sourceId, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(source),
+        });
+    },
+
+    deleteCatalogSource: function (sourceId) {
+        return apiCall('deleteCatalogSource', API_BASE + '/catalog?sourceId=' + sourceId, {
+            method: 'DELETE',
         });
     },
 
@@ -304,19 +318,51 @@ async function init() {
     await openDB();
 
     // Try remote API first (shared state across devices)
-    var remoteCatalog = await api.getCatalog();
-    if (remoteCatalog !== null) {
-        // API responded — trust remote as source of truth
-        catalog = remoteCatalog;
+    var meta = await api.getCatalogMeta();
+    if (meta !== null && meta.source_ids && meta.source_ids.length > 0) {
+        // API responded with paginated catalog
+        catalog.total_emails = meta.total_emails || 0;
+        catalog.total_sources = meta.total_sources || 0;
+        catalog.sources = [];
+        renderStats();
+
+        // Download sources in parallel batches of 5
+        for (var i = 0; i < meta.source_ids.length; i += 5) {
+            var batch = meta.source_ids.slice(i, i + 5);
+            var sources = await Promise.all(batch.map(function (sid) {
+                return api.getCatalogSource(sid);
+            }));
+            sources.forEach(function (s) {
+                if (s) {
+                    catalog.sources.push(s);
+                    (s.emails_summary || []).forEach(function (e) {
+                        emailStore[e.email_id] = {
+                            email_id: e.email_id,
+                            subject: e.subject,
+                            sender: e.sender,
+                            date: e.date,
+                            clean_subject: e.clean_subject,
+                            attachment_count: e.attachment_count,
+                            pec_provider: e.pec_provider,
+                            source_file: e.source_file
+                        };
+                    });
+                }
+            });
+            // Progressive rendering
+            hideWelcome();
+            renderSources(catalog.sources);
+        }
+
+        saveCatalogToDB();
+    } else if (meta !== null && meta.sources) {
+        // Old monolithic format from API (retrocompat)
+        catalog = meta;
         populateStoreFromCatalog();
         saveCatalogToDB();
-
-        // Background: download full emails to IDB for offline access
-        if (remoteCatalog.sources && remoteCatalog.sources.length > 0) {
-            api.getAllEmails().then(function (remoteEmails) {
-                if (remoteEmails) saveEmailsToDB(remoteEmails);
-            });
-        }
+    } else if (meta !== null) {
+        // Empty catalog from API
+        catalog = { total_emails: 0, total_sources: 0, sources: [] };
     } else {
         // API unreachable — fall back to local IndexedDB (offline mode)
         await loadFromDB();
@@ -390,8 +436,14 @@ function handleParseResult(result) {
     saveEmailsToDB(result.emailDataMap);
     searchIndex = null; // invalidate — will rebuild on next search
 
-    // Sync to remote API (fire-and-forget)
-    api.saveCatalog(catalog);
+    // Sync to remote API (fire-and-forget, incremental)
+    var sourceId = result.source.source_id;
+    api.saveCatalogSource(sourceId, result.source);
+    api.saveCatalogMeta({
+        total_emails: catalog.total_emails,
+        total_sources: catalog.total_sources,
+        source_ids: catalog.sources.map(function (s) { return s.source_id; })
+    });
     var newEmails = {};
     Object.keys(result.emailDataMap).forEach(function (id) {
         var copy = Object.assign({}, result.emailDataMap[id]);
@@ -581,9 +633,14 @@ async function handleDeleteSource(sourceId, sourceFile) {
     renderSources(catalog.sources);
     searchIndex = null; // invalidate search index
 
-    // Sync deletion to remote API (two approaches for reliability)
+    // Sync deletion to remote API (incremental)
     api.deleteSource(sourceId);
-    api.saveCatalog(catalog);
+    api.deleteCatalogSource(sourceId);
+    api.saveCatalogMeta({
+        total_emails: catalog.total_emails,
+        total_sources: catalog.total_sources,
+        source_ids: catalog.sources.map(function (s) { return s.source_id; })
+    });
 
     if (catalog.sources.length === 0) {
         var wb = document.getElementById('welcome-box');
