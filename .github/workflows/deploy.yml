@@ -15,15 +15,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install Netlify CLI
+        run: npm i -g netlify-cli
 
-      - name: Deploy to Netlify
-        uses: nwtgck/actions-netlify@v3
-        with:
-          publish-dir: '.'
-          production-deploy: true
-          functions-dir: './netlify/functions'
+      - name: Build and Deploy
+        run: netlify deploy --build --prod
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}

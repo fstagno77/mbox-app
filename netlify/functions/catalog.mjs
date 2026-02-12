@@ -22,5 +22,4 @@ export default async (req) => {
 
 export const config = {
   path: "/api/catalog",
-  method: ["GET", "PUT"],
 };

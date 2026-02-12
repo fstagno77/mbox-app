@@ -1,5 +1,6 @@
 [build]
   publish = "."
+  command = "npm ci"
 
 [functions]
   directory = "netlify/functions"
@@ -12,7 +13,7 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
-# SPA fallback (v2 functions with custom path config take precedence)
+# SPA fallback (v2 functions with custom path take precedence)
 [[redirects]]
   from = "/*"
   to = "/index.html"
