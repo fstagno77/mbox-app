@@ -8,6 +8,34 @@ var virtualList = null;       // VirtualList instance for sidebar
 var openSources = {};         // source_id → true if expanded
 var openGroups = {};          // group_id → true if expanded
 
+/* ─── Search index (Lunr.js) ─── */
+var searchIndex = null;
+
+function buildSearchIndex() {
+    var docs = [];
+    (catalog.sources || []).forEach(function (source) {
+        (source.emails_summary || []).forEach(function (s) {
+            docs.push({
+                id: s.email_id,
+                subject: s.subject || '',
+                sender: s.sender || '',
+                clean_subject: s.clean_subject || ''
+            });
+        });
+    });
+
+    searchIndex = lunr(function () {
+        this.ref('id');
+        this.field('subject', { boost: 10 });
+        this.field('clean_subject', { boost: 5 });
+        this.field('sender', { boost: 3 });
+
+        docs.forEach(function (doc) {
+            this.add(doc);
+        }, this);
+    });
+}
+
 /* ─── LRU Cache for full email objects ─── */
 var EMAIL_CACHE_SIZE = 50;
 var emailCache = {};
@@ -298,6 +326,7 @@ async function init() {
         hideWelcome();
         renderStats();
         renderSources(catalog.sources);
+        buildSearchIndex();
     }
 
     setupSearch();
@@ -359,6 +388,7 @@ function handleParseResult(result) {
     renderSources(catalog.sources);
     saveCatalogToDB();
     saveEmailsToDB(result.emailDataMap);
+    searchIndex = null; // invalidate — will rebuild on next search
 
     // Sync to remote API (fire-and-forget)
     api.saveCatalog(catalog);
@@ -549,6 +579,7 @@ async function handleDeleteSource(sourceId, sourceFile) {
 
     renderStats();
     renderSources(catalog.sources);
+    searchIndex = null; // invalidate search index
 
     // Sync deletion to remote API (two approaches for reliability)
     api.deleteSource(sourceId);
@@ -941,26 +972,35 @@ function setupSearch() {
 }
 
 function searchEmails(query) {
-    var q = query.toLowerCase();
-    var allSummaries = [];
-    catalog.sources.forEach(function (s) {
-        (s.emails_summary || []).forEach(function (e) { allSummaries.push(e); });
-    });
+    if (!searchIndex) buildSearchIndex();
 
-    var seen = {};
-    var results = [];
-
-    // TODO: full-text search via search index (prompt 04)
-    allSummaries.forEach(function (summary) {
-        if (seen[summary.email_id]) return;
-        var searchable = [summary.subject || '', summary.sender || '', summary.clean_subject || ''].join(' ').toLowerCase();
-        if (searchable.indexOf(q) !== -1) {
-            results.push(summary);
-            seen[summary.email_id] = true;
+    var lunrResults;
+    try {
+        lunrResults = searchIndex.search(query + '*');
+    } catch (e) {
+        try {
+            lunrResults = searchIndex.search(query.replace(/[:\*\~\^]/g, ''));
+        } catch (e2) {
+            lunrResults = [];
         }
+    }
+
+    // Map Lunr results to summary objects
+    var resultIds = {};
+    lunrResults.forEach(function (r) { resultIds[r.ref] = true; });
+
+    var summaries = [];
+    var seen = {};
+    (catalog.sources || []).forEach(function (s) {
+        (s.emails_summary || []).forEach(function (e) {
+            if (resultIds[e.email_id] && !seen[e.email_id]) {
+                summaries.push(e);
+                seen[e.email_id] = true;
+            }
+        });
     });
 
-    if (results.length === 0) {
+    if (summaries.length === 0) {
         if (virtualList) virtualList.destroy();
         virtualList = null;
         var gl = document.getElementById('groups-list');
@@ -974,11 +1014,11 @@ function searchEmails(query) {
 
     var fakeSource = {
         source_id: 'search',
-        source_file: results.length + ' risultati per "' + query + '"',
+        source_file: summaries.length + ' risultati per "' + query + '"',
         uploaded_at: '',
-        email_count: results.length,
-        groups: [{ group_id: 'search', label: 'Risultati', email_ids: results.map(function (r) { return r.email_id; }) }],
-        emails_summary: results,
+        email_count: summaries.length,
+        groups: [{ group_id: 'search', label: 'Risultati', email_ids: summaries.map(function (r) { return r.email_id; }) }],
+        emails_summary: summaries,
     };
 
     // Auto-open search results in the virtual list
