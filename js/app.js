@@ -260,6 +260,48 @@ function hideWelcome() {
     }
 }
 
+function handleParseResult(result) {
+    // Store emails
+    Object.keys(result.emailDataMap).forEach(function (id) {
+        emailStore[id] = result.emailDataMap[id];
+    });
+
+    // Clear "new" flag from previous sources
+    catalog.sources.forEach(function (s) { s.isNew = false; });
+
+    // Add source marked as new
+    result.source.isNew = true;
+    catalog.sources.push(result.source);
+    catalog.total_sources = catalog.sources.length;
+    catalog.total_emails = catalog.sources.reduce(function (s, src) {
+        return s + src.email_count;
+    }, 0);
+
+    hideWelcome();
+    renderStats();
+    renderSources(catalog.sources);
+    saveToDB();
+
+    // Sync to remote API (fire-and-forget)
+    api.saveCatalog(catalog);
+    var newEmails = {};
+    Object.keys(result.emailDataMap).forEach(function (id) {
+        var copy = Object.assign({}, result.emailDataMap[id]);
+        copy.attachments = (copy.attachments || []).map(function (a) {
+            var c = Object.assign({}, a); delete c.data; return c;
+        });
+        newEmails[id] = copy;
+    });
+    api.saveEmails(newEmails);
+    // Save attachments per-email (binary data)
+    Object.keys(result.emailDataMap).forEach(function (id) {
+        var email = result.emailDataMap[id];
+        if (email.attachments && email.attachments.some(function (a) { return a.data; })) {
+            api.saveAttachments(id, email.attachments);
+        }
+    });
+}
+
 function processFile(file) {
     if (!file || !file.name.toLowerCase().endsWith('.mbox')) {
         alert('Sono accettati solo file .mbox');
@@ -270,57 +312,48 @@ function processFile(file) {
 
     var reader = new FileReader();
     reader.onload = function (e) {
+        var text = e.target.result;
         showLoading('Analisi di ' + file.name + '...');
-        // Use setTimeout to let the UI update before heavy parsing
-        setTimeout(function () {
-            try {
-                var result = MboxParser.parseMboxFile(e.target.result, file.name);
 
-                // Store emails
-                Object.keys(result.emailDataMap).forEach(function (id) {
-                    emailStore[id] = result.emailDataMap[id];
-                });
-
-                // Clear "new" flag from previous sources
-                catalog.sources.forEach(function (s) { s.isNew = false; });
-
-                // Add source marked as new
-                result.source.isNew = true;
-                catalog.sources.push(result.source);
-                catalog.total_sources = catalog.sources.length;
-                catalog.total_emails = catalog.sources.reduce(function (s, src) {
-                    return s + src.email_count;
-                }, 0);
-
-                hideWelcome();
-                renderStats();
-                renderSources(catalog.sources);
-                saveToDB();
-
-                // Sync to remote API (fire-and-forget)
-                api.saveCatalog(catalog);
-                var newEmails = {};
-                Object.keys(result.emailDataMap).forEach(function (id) {
-                    var copy = Object.assign({}, result.emailDataMap[id]);
-                    copy.attachments = (copy.attachments || []).map(function (a) {
-                        var c = Object.assign({}, a); delete c.data; return c;
-                    });
-                    newEmails[id] = copy;
-                });
-                api.saveEmails(newEmails);
-                // Save attachments per-email (binary data)
-                Object.keys(result.emailDataMap).forEach(function (id) {
-                    var email = result.emailDataMap[id];
-                    if (email.attachments && email.attachments.some(function (a) { return a.data; })) {
-                        api.saveAttachments(id, email.attachments);
+        if (typeof Worker !== 'undefined') {
+            // Web Worker path — keeps UI responsive
+            var worker = new Worker('js/parse-worker.js');
+            worker.onmessage = function (msg) {
+                var data = msg.data;
+                if (data.type === 'result') {
+                    try {
+                        handleParseResult(data);
+                    } catch (err) {
+                        console.error('Post-parse error:', err);
+                        alert('Errore durante l\'elaborazione: ' + err.message);
                     }
-                });
-            } catch (err) {
-                console.error('Parse error:', err);
-                alert('Errore durante l\'analisi: ' + err.message);
-            }
-            hideLoading();
-        }, 50);
+                } else if (data.type === 'error') {
+                    console.error('Worker parse error:', data.message);
+                    alert('Errore durante l\'analisi: ' + data.message);
+                }
+                hideLoading();
+                worker.terminate();
+            };
+            worker.onerror = function (err) {
+                console.error('Worker error:', err);
+                alert('Errore nel worker di analisi: ' + (err.message || 'errore sconosciuto'));
+                hideLoading();
+                worker.terminate();
+            };
+            worker.postMessage({ type: 'parse', text: text, sourceFile: file.name });
+        } else {
+            // Fallback — synchronous parsing on main thread
+            setTimeout(function () {
+                try {
+                    var result = MboxParser.parseMboxFile(text, file.name);
+                    handleParseResult(result);
+                } catch (err) {
+                    console.error('Parse error:', err);
+                    alert('Errore durante l\'analisi: ' + err.message);
+                }
+                hideLoading();
+            }, 50);
+        }
     };
     reader.onerror = function () {
         hideLoading();
