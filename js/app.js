@@ -21,7 +21,79 @@ function getFileIcon(filename) {
 }
 var ICON_SEARCH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 111.06-1.06l2.755 2.754a.75.75 0 11-1.06 1.06l-2.755-2.754zM10.5 7a3.5 3.5 0 11-7 0 3.5 3.5 0 017 0z" clip-rule="evenodd"/></svg>';
 
-/* ─── IndexedDB persistence ─── */
+/* ─── Remote API client (Netlify Functions + Blobs) ─── */
+var API_BASE = '/api';
+
+var api = {
+    getCatalog: function () {
+        return fetch(API_BASE + '/catalog').then(function (res) {
+            if (!res.ok) return null;
+            return res.json();
+        }).catch(function (e) { console.warn('API getCatalog failed:', e); return null; });
+    },
+
+    saveCatalog: function (catalogObj) {
+        return fetch(API_BASE + '/catalog', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(catalogObj),
+        }).catch(function (e) { console.warn('API saveCatalog failed:', e); });
+    },
+
+    getAllEmails: function () {
+        return fetch(API_BASE + '/emails?all=true').then(function (res) {
+            if (!res.ok) return null;
+            return res.json();
+        }).catch(function (e) { console.warn('API getAllEmails failed:', e); return null; });
+    },
+
+    saveEmails: function (emailsObj) {
+        return fetch(API_BASE + '/emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails: emailsObj }),
+        }).catch(function (e) { console.warn('API saveEmails failed:', e); });
+    },
+
+    deleteEmails: function (ids) {
+        return fetch(API_BASE + '/emails', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: ids }),
+        }).catch(function (e) { console.warn('API deleteEmails failed:', e); });
+    },
+
+    saveAttachments: function (emailId, attachments) {
+        var toSend = attachments
+            .filter(function (a) { return a.data && a.data.length < 4 * 1024 * 1024; })
+            .map(function (a) {
+                var binary = '';
+                var bytes = a.data instanceof Uint8Array ? a.data : new Uint8Array(a.data);
+                for (var i = 0; i < bytes.length; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return {
+                    filename: a.filename,
+                    content_type: a.content_type,
+                    data: btoa(binary),
+                };
+            });
+        if (toSend.length === 0) return Promise.resolve();
+        return fetch(API_BASE + '/attachments/' + emailId, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attachments: toSend }),
+        }).catch(function (e) { console.warn('API saveAttachments failed:', e); });
+    },
+
+    deleteSource: function (sourceId) {
+        return fetch(API_BASE + '/sources/' + sourceId, { method: 'DELETE' })
+            .then(function (res) { return res.ok; })
+            .catch(function (e) { console.warn('API deleteSource failed:', e); return false; });
+    },
+};
+
+/* ─── IndexedDB persistence (local cache) ─── */
 var DB_NAME = 'mbox-archive';
 var DB_VERSION = 1;
 var db = null;
@@ -98,9 +170,36 @@ async function init() {
     if (searchIcon) searchIcon.innerHTML = ICON_SEARCH;
 
     await openDB();
-    var loaded = await loadFromDB();
 
-    if (loaded && catalog.sources && catalog.sources.length > 0) {
+    // Try remote API first (shared state across devices)
+    var remoteCatalog = await api.getCatalog();
+    if (remoteCatalog && remoteCatalog.sources && remoteCatalog.sources.length > 0) {
+        catalog = remoteCatalog;
+        var remoteEmails = await api.getAllEmails();
+        if (remoteEmails) {
+            emailStore = remoteEmails;
+        }
+        // Update local IDB cache
+        saveToDB();
+    } else {
+        // Fall back to local IndexedDB
+        var loaded = await loadFromDB();
+        if (loaded && catalog.sources && catalog.sources.length > 0) {
+            // Data exists locally but not remotely — push to remote
+            api.saveCatalog(catalog);
+            var emailsCopy = {};
+            Object.keys(emailStore).forEach(function (id) {
+                var copy = Object.assign({}, emailStore[id]);
+                copy.attachments = (copy.attachments || []).map(function (a) {
+                    var c = Object.assign({}, a); delete c.data; return c;
+                });
+                emailsCopy[id] = copy;
+            });
+            api.saveEmails(emailsCopy);
+        }
+    }
+
+    if (catalog.sources && catalog.sources.length > 0) {
         hideWelcome();
         renderStats();
         renderSources(catalog.sources);
@@ -166,6 +265,25 @@ function processFile(file) {
                 renderStats();
                 renderSources(catalog.sources);
                 saveToDB();
+
+                // Sync to remote API (fire-and-forget)
+                api.saveCatalog(catalog);
+                var newEmails = {};
+                Object.keys(result.emailDataMap).forEach(function (id) {
+                    var copy = Object.assign({}, result.emailDataMap[id]);
+                    copy.attachments = (copy.attachments || []).map(function (a) {
+                        var c = Object.assign({}, a); delete c.data; return c;
+                    });
+                    newEmails[id] = copy;
+                });
+                api.saveEmails(newEmails);
+                // Save attachments per-email (binary data)
+                Object.keys(result.emailDataMap).forEach(function (id) {
+                    var email = result.emailDataMap[id];
+                    if (email.attachments && email.attachments.some(function (a) { return a.data; })) {
+                        api.saveAttachments(id, email.attachments);
+                    }
+                });
             } catch (err) {
                 console.error('Parse error:', err);
                 alert('Errore durante l\'analisi: ' + err.message);
@@ -284,6 +402,9 @@ async function handleDeleteSource(sourceId, sourceFile) {
 
     renderStats();
     renderSources(catalog.sources);
+
+    // Sync deletion to remote API
+    api.deleteSource(sourceId);
 
     if (catalog.sources.length === 0) {
         var wb = document.getElementById('welcome-box');
@@ -467,8 +588,9 @@ function renderDetail(email) {
                 a.href = url;
                 a.download = att.filename;
             } else {
-                a.href = '#';
-                a.title = 'Allegato non disponibile (ricarica il file .mbox)';
+                // Fallback: download from remote API
+                a.href = '/api/attachments/' + email.email_id + '/' + encodeURIComponent(att.filename);
+                a.download = att.filename;
             }
             a.innerHTML = getFileIcon(att.filename) + ' ' + escapeHtml(att.filename) +
                 ' <span class="att-size">' + formatSize(att.size) + '</span>';
@@ -478,15 +600,21 @@ function renderDetail(email) {
         attSection.style.display = 'none';
     }
 
-    // Body HTML — rewrite cid: references to blob URLs
+    // Body HTML — rewrite cid: references to blob URLs or API fallback
     var bodyHtml = email.body_html;
     if (bodyHtml && email.attachments) {
         email.attachments.forEach(function (att) {
-            if (att.content_id && att.data) {
-                var blob = new Blob([att.data], { type: att.content_type || 'image/png' });
-                var url = URL.createObjectURL(blob);
-                blobUrls.push(url);
-                bodyHtml = bodyHtml.split('cid:' + att.content_id).join(url);
+            if (att.content_id) {
+                var imgUrl;
+                if (att.data) {
+                    var blob = new Blob([att.data], { type: att.content_type || 'image/png' });
+                    imgUrl = URL.createObjectURL(blob);
+                    blobUrls.push(imgUrl);
+                } else {
+                    // Fallback: use remote API for inline images
+                    imgUrl = '/api/attachments/' + email.email_id + '/' + encodeURIComponent(att.filename);
+                }
+                bodyHtml = bodyHtml.split('cid:' + att.content_id).join(imgUrl);
             }
         });
     }
