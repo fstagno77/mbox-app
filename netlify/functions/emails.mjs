@@ -6,31 +6,12 @@ export default async (req) => {
 
   if (req.method === "GET") {
     const emailId = url.searchParams.get("id");
-    const all = url.searchParams.get("all");
-
-    if (emailId) {
-      const email = await store.get(emailId, { type: "json" });
-      if (!email) return Response.json({ error: "Not found" }, { status: 404 });
-      return Response.json(email);
+    if (!emailId) {
+      return Response.json({ error: "Missing id param" }, { status: 400 });
     }
-
-    if (all === "true") {
-      const { blobs } = await store.list();
-      const emails = {};
-      const keys = blobs.map((b) => b.key);
-      for (let i = 0; i < keys.length; i += 20) {
-        const chunk = keys.slice(i, i + 20);
-        const results = await Promise.all(
-          chunk.map((key) => store.get(key, { type: "json" }))
-        );
-        chunk.forEach((key, idx) => {
-          if (results[idx]) emails[key] = results[idx];
-        });
-      }
-      return Response.json(emails);
-    }
-
-    return Response.json({ error: "Missing id or all param" }, { status: 400 });
+    const email = await store.get(emailId, { type: "json" });
+    if (!email) return Response.json({ error: "Not found" }, { status: 404 });
+    return Response.json(email);
   }
 
   if (req.method === "POST") {

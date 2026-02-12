@@ -1,5 +1,9 @@
 /* MBOX Archive — client-side SPA */
 
+var AUTO_OPEN_GROUP_THRESHOLD = 3;  // auto-expand groups with <= N emails
+var SOURCE_BATCH_SIZE = 5;          // parallel source downloads during init
+var SEARCH_DEBOUNCE_MS = 300;       // debounce delay for search input
+
 var catalog = { total_emails: 0, total_sources: 0, sources: [] };
 var emailStore = {};          // email_id → metadata only (no body/attachments)
 var currentEmailId = null;
@@ -83,7 +87,6 @@ var API_BASE = '/.netlify/functions';
 
 function apiCall(name, url, opts) {
     return fetch(url, opts).then(function (res) {
-        console.log('[API ' + name + '] ' + (opts && opts.method || 'GET') + ' ' + url + ' → ' + res.status);
         return res;
     }).catch(function (e) {
         console.error('[API ' + name + '] NETWORK ERROR:', e);
@@ -212,10 +215,6 @@ function saveEmailsToDB(emailDataMap) {
     } catch (e) { console.warn('IDB emails save failed:', e); }
 }
 
-function saveToDB() {
-    saveCatalogToDB();
-}
-
 function loadEmailFromDB(emailId) {
     if (!db) return Promise.resolve(null);
     return new Promise(function (resolve) {
@@ -327,8 +326,8 @@ async function init() {
         renderStats();
 
         // Download sources in parallel batches of 5
-        for (var i = 0; i < meta.source_ids.length; i += 5) {
-            var batch = meta.source_ids.slice(i, i + 5);
+        for (var i = 0; i < meta.source_ids.length; i += SOURCE_BATCH_SIZE) {
+            var batch = meta.source_ids.slice(i, i + SOURCE_BATCH_SIZE);
             var sources = await Promise.all(batch.map(function (sid) {
                 return api.getCatalogSource(sid);
             }));
@@ -633,14 +632,8 @@ async function handleDeleteSource(sourceId, sourceFile) {
     renderSources(catalog.sources);
     searchIndex = null; // invalidate search index
 
-    // Sync deletion to remote API (incremental)
+    // Sync deletion to remote API — sources endpoint handles cascade cleanup
     api.deleteSource(sourceId);
-    api.deleteCatalogSource(sourceId);
-    api.saveCatalogMeta({
-        total_emails: catalog.total_emails,
-        total_sources: catalog.total_sources,
-        source_ids: catalog.sources.map(function (s) { return s.source_id; })
-    });
 
     if (catalog.sources.length === 0) {
         var wb = document.getElementById('welcome-box');
@@ -650,7 +643,7 @@ async function handleDeleteSource(sourceId, sourceFile) {
         mobileShowList();
         clearDB();
     } else {
-        saveToDB();
+        saveCatalogToDB();
     }
 }
 
@@ -799,7 +792,7 @@ function initVirtualList() {
                 if (src) {
                     (src.groups || []).forEach(function (g) {
                         var gk = sid + '_' + g.group_id;
-                        if (!(gk in openGroups) && g.email_ids.length <= 3) openGroups[gk] = true;
+                        if (!(gk in openGroups) && g.email_ids.length <= AUTO_OPEN_GROUP_THRESHOLD) openGroups[gk] = true;
                     });
                 }
             }
@@ -854,7 +847,7 @@ function renderSources(sources) {
         if (openSources[source.source_id]) {
             (source.groups || []).forEach(function (g) {
                 var gk = source.source_id + '_' + g.group_id;
-                if (!(gk in openGroups) && g.email_ids.length <= 3) {
+                if (!(gk in openGroups) && g.email_ids.length <= AUTO_OPEN_GROUP_THRESHOLD) {
                     openGroups[gk] = true;
                 }
             });
@@ -1016,7 +1009,7 @@ function setupSearch() {
                 return;
             }
             searchEmails(q);
-        }, 300);
+        }, SEARCH_DEBOUNCE_MS);
     });
 
     clearBtn.addEventListener('click', function () {

@@ -325,14 +325,6 @@ html, body {
     height: 15px;
 }
 
-.source-content {
-    display: none;
-}
-
-.source-content.open {
-    display: block;
-}
-
 /* Group accordion */
 .group-header {
     padding: 10px 16px 10px 20px;
@@ -380,14 +372,6 @@ html, body {
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
-}
-
-.group-emails {
-    display: none;
-}
-
-.group-emails.open {
-    display: block;
 }
 
 /* Virtual list container */
@@ -452,16 +436,6 @@ html, body {
     text-overflow: ellipsis;
     white-space: nowrap;
     margin-top: 2px;
-}
-
-.email-preview {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-top: 2px;
-    line-height: 1.4;
 }
 
 .email-badges {
@@ -761,15 +735,6 @@ html, body {
     max-height: 600px;
     overflow-y: auto;
     color: var(--text-secondary);
-}
-
-/* Search results highlight */
-.search-active .group-emails {
-    display: block !important;
-}
-
-.search-active .group-header .arrow {
-    transform: rotate(90deg);
 }
 
 /* Drag-drop overlay */
