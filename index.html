@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MBOX Archive</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+    <header class="header">
+        <h1>MBOX Archive</h1>
+        <div class="header-spacer"></div>
+        <div class="stats" id="stats"></div>
+        <button class="upload-btn" id="upload-btn" title="Carica file .mbox">Carica .mbox</button>
+        <input type="file" id="upload-input" accept=".mbox" style="display:none" multiple>
+    </header>
+
+    <div class="main-layout">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-search">
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="Cerca nelle email..." autocomplete="off">
+                    <span class="search-icon"></span>
+                    <button type="button" class="search-clear" id="search-clear" title="Cancella ricerca">&times;</button>
+                </div>
+            </div>
+            <div id="groups-list"></div>
+        </aside>
+
+        <main class="detail-panel" id="detail-panel">
+            <div class="empty-state" id="empty-state">
+                <div class="welcome-box" id="welcome-box">
+                    <div class="welcome-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="48" height="48"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    </div>
+                    <h2>Carica un file .mbox</h2>
+                    <p>Trascina un file .mbox qui oppure usa il pulsante "Carica .mbox"</p>
+                    <p class="welcome-sub">I dati vengono elaborati nel browser, nulla viene inviato a un server.</p>
+                </div>
+            </div>
+            <div class="email-detail" id="email-detail" style="display:none;">
+                <div class="email-header-info">
+                    <div class="email-header-top">
+                        <div class="sender-avatar" id="sender-avatar"></div>
+                        <div class="email-header-text">
+                            <h2 id="detail-subject"></h2>
+                            <div class="email-header-sender" id="detail-sender-line"></div>
+                        </div>
+                    </div>
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <span class="meta-label">Destinatari</span>
+                            <span class="meta-value" id="detail-recipients"></span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Data</span>
+                            <span class="meta-value" id="detail-date"></span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">PEC Provider</span>
+                            <span class="meta-value" id="detail-provider"></span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">File</span>
+                            <span class="meta-value source-badge" id="detail-source"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="attachments-section" id="attachments-section" style="display:none;">
+                    <h3>Allegati</h3>
+                    <div id="attachments-list"></div>
+                </div>
+                <div class="body-section">
+                    <div class="body-tabs">
+                        <button class="tab-btn active" data-tab="html">HTML</button>
+                        <button class="tab-btn" data-tab="text">Testo</button>
+                    </div>
+                    <div class="tab-content" id="tab-html">
+                        <iframe id="body-iframe" sandbox="allow-same-origin" frameborder="0"></iframe>
+                    </div>
+                    <div class="tab-content" id="tab-text" style="display:none;">
+                        <pre id="body-text"></pre>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<!-- Drag-drop overlay -->
+<div class="drop-overlay" id="drop-overlay">
+    <div class="drop-overlay-content">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="48" height="48"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>Rilascia il file .mbox qui</p>
+    </div>
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading-overlay" style="display:none;">
+    <div class="loading-content">
+        <div class="spinner"></div>
+        <p id="loading-text">Analisi in corso...</p>
+    </div>
+</div>
+
+<script src="js/mbox-parser.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

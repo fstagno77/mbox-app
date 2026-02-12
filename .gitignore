@@ -1,0 +1,23 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python (legacy)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Data (user-generated, should not be committed)
+data/
+*.mbox
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node (if ever needed)
+node_modules/
