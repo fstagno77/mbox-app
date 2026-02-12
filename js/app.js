@@ -175,30 +175,22 @@ async function init() {
 
     // Try remote API first (shared state across devices)
     var remoteCatalog = await api.getCatalog();
-    if (remoteCatalog && remoteCatalog.sources && remoteCatalog.sources.length > 0) {
+    if (remoteCatalog !== null) {
+        // API responded — trust remote as source of truth
         catalog = remoteCatalog;
-        var remoteEmails = await api.getAllEmails();
-        if (remoteEmails) {
-            emailStore = remoteEmails;
+        if (remoteCatalog.sources && remoteCatalog.sources.length > 0) {
+            var remoteEmails = await api.getAllEmails();
+            if (remoteEmails) {
+                emailStore = remoteEmails;
+            }
+        } else {
+            emailStore = {};
         }
-        // Update local IDB cache
+        // Update local IDB cache to match remote
         saveToDB();
     } else {
-        // Fall back to local IndexedDB
-        var loaded = await loadFromDB();
-        if (loaded && catalog.sources && catalog.sources.length > 0) {
-            // Data exists locally but not remotely — push to remote
-            api.saveCatalog(catalog);
-            var emailsCopy = {};
-            Object.keys(emailStore).forEach(function (id) {
-                var copy = Object.assign({}, emailStore[id]);
-                copy.attachments = (copy.attachments || []).map(function (a) {
-                    var c = Object.assign({}, a); delete c.data; return c;
-                });
-                emailsCopy[id] = copy;
-            });
-            api.saveEmails(emailsCopy);
-        }
+        // API unreachable — fall back to local IndexedDB (offline mode)
+        await loadFromDB();
     }
 
     if (catalog.sources && catalog.sources.length > 0) {
@@ -405,8 +397,9 @@ async function handleDeleteSource(sourceId, sourceFile) {
     renderStats();
     renderSources(catalog.sources);
 
-    // Sync deletion to remote API
+    // Sync deletion to remote API (two approaches for reliability)
     api.deleteSource(sourceId);
+    api.saveCatalog(catalog);
 
     if (catalog.sources.length === 0) {
         var wb = document.getElementById('welcome-box');
