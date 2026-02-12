@@ -166,10 +166,41 @@ function renderSources(sources) {
     });
 }
 
+/* ─── Confirm modal ─── */
+
+function showConfirmModal(message) {
+    return new Promise(function (resolve) {
+        var overlay = document.getElementById('confirm-overlay');
+        var msg = document.getElementById('confirm-message');
+        var btnOk = document.getElementById('confirm-ok');
+        var btnCancel = document.getElementById('confirm-cancel');
+
+        msg.textContent = message;
+        overlay.classList.add('visible');
+        btnOk.focus();
+
+        function cleanup() {
+            overlay.classList.remove('visible');
+            btnOk.removeEventListener('click', onOk);
+            btnCancel.removeEventListener('click', onCancel);
+            overlay.removeEventListener('click', onBackdrop);
+            document.removeEventListener('keydown', onKey);
+        }
+        function onOk() { cleanup(); resolve(true); }
+        function onCancel() { cleanup(); resolve(false); }
+        function onBackdrop(e) { if (e.target === overlay) onCancel(); }
+        function onKey(e) { if (e.key === 'Escape') onCancel(); }
+
+        btnOk.addEventListener('click', onOk);
+        btnCancel.addEventListener('click', onCancel);
+        overlay.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+    });
+}
+
 async function handleDeleteSource(sourceId, sourceFile) {
-    if (!confirm('Eliminare la sorgente "' + sourceFile + '" e tutti i dati associati?')) {
-        return;
-    }
+    var ok = await showConfirmModal('Eliminare la sorgente "' + sourceFile + '" e tutti i dati associati?');
+    if (!ok) return;
     try {
         var resp = await fetch("/api/sources/" + sourceId, { method: "DELETE" });
         var data = await resp.json();

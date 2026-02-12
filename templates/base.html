@@ -8,6 +8,18 @@
 </head>
 <body>
     {% block content %}{% endblock %}
+
+    <!-- Confirm modal -->
+    <div class="confirm-overlay" id="confirm-overlay">
+        <div class="confirm-modal">
+            <p class="confirm-message" id="confirm-message"></p>
+            <div class="confirm-actions">
+                <button class="confirm-btn confirm-cancel" id="confirm-cancel">Annulla</button>
+                <button class="confirm-btn confirm-delete" id="confirm-ok">Elimina</button>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
