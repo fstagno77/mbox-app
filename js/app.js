@@ -791,6 +791,10 @@ function renderStats() {
         total + ' email in ' + n + ' sorgent' + (n === 1 ? 'e' : 'i');
 }
 
+function sourceUploadDate(s) {
+    return s._uploaded_ts || parseDateDDMMYYYY(s.uploaded_at) || 0;
+}
+
 function sortSources(sources) {
     var sorted = sources.slice();
     var dir = currentSortDir === 'asc' ? 1 : -1;
@@ -800,7 +804,7 @@ function sortSources(sources) {
         });
     } else {
         sorted.sort(function (a, b) {
-            return dir * ((a._uploaded_ts || 0) - (b._uploaded_ts || 0));
+            return dir * (sourceUploadDate(a) - sourceUploadDate(b));
         });
     }
     return sorted;
