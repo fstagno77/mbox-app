@@ -806,11 +806,23 @@ function sortSources(sources) {
     return sorted;
 }
 
+// Parse "dd/mm/yyyy HH:MM" into a comparable numeric value
+function parseDateDDMMYYYY(str) {
+    if (!str) return 0;
+    var m = str.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
+    if (!m) return 0;
+    // yyyyMMddHHmm as number for fast comparison
+    return (+m[3]) * 100000000 + (+m[2]) * 1000000 + (+m[1]) * 10000 + (+m[4]) * 100 + (+m[5]);
+}
+
 function flattenSources(sources) {
     var flat = [];
     if (!sources) return flat;
 
     var sorted = sortSources(sources);
+    var dateSort = currentSort === 'date';
+    var dateDir = currentSortDir === 'asc' ? 1 : -1;
+
     sorted.forEach(function (source) {
         var summaryMap = {};
         (source.emails_summary || []).forEach(function (s) { summaryMap[s.email_id] = s; });
@@ -823,7 +835,24 @@ function flattenSources(sources) {
 
         if (!openSources[source.source_id]) return;
 
-        (source.groups || []).forEach(function (group) {
+        var groups = (source.groups || []).slice();
+        if (dateSort) {
+            // Sort groups by the most recent email date in the group
+            groups.sort(function (a, b) {
+                var aDate = 0, bDate = 0;
+                a.email_ids.forEach(function (id) {
+                    var s = summaryMap[id];
+                    if (s) { var d = parseDateDDMMYYYY(s.date); if (d > aDate) aDate = d; }
+                });
+                b.email_ids.forEach(function (id) {
+                    var s = summaryMap[id];
+                    if (s) { var d = parseDateDDMMYYYY(s.date); if (d > bDate) bDate = d; }
+                });
+                return dateDir * (aDate - bDate);
+            });
+        }
+
+        groups.forEach(function (group) {
             flat.push({
                 type: 'group-header',
                 _key: 'gh_' + source.source_id + '_' + group.group_id,
@@ -834,7 +863,15 @@ function flattenSources(sources) {
             var gkey = source.source_id + '_' + group.group_id;
             if (!openGroups[gkey]) return;
 
-            group.email_ids.forEach(function (eid) {
+            var eids = group.email_ids;
+            if (dateSort) {
+                eids = eids.slice().sort(function (a, b) {
+                    var sa = summaryMap[a], sb = summaryMap[b];
+                    return dateDir * (parseDateDDMMYYYY(sa && sa.date) - parseDateDDMMYYYY(sb && sb.date));
+                });
+            }
+
+            eids.forEach(function (eid) {
                 var s = summaryMap[eid];
                 if (!s) return;
                 flat.push({
