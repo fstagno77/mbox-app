@@ -49,6 +49,14 @@ var VirtualList = (function () {
         var searchBar = this._scroll.querySelector('.sidebar-search');
         this._searchBarHeight = searchBar ? searchBar.offsetHeight : 0;
 
+        // Clear all previously rendered DOM nodes — their offsets are stale
+        // because the flat array has changed (accordion toggle, new data, etc.)
+        var keys = Object.keys(this._rendered);
+        for (var k = 0; k < keys.length; k++) {
+            this._container.removeChild(this._rendered[keys[k]]);
+        }
+        this._rendered = {};
+
         this._update();
     };
 

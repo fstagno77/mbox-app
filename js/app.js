@@ -1,6 +1,5 @@
 /* MBOX Archive — client-side SPA */
 
-var AUTO_OPEN_GROUP_THRESHOLD = 3;  // auto-expand groups with <= N emails
 var SOURCE_BATCH_SIZE = 5;          // parallel source downloads during init
 var SEARCH_DEBOUNCE_MS = 300;       // debounce delay for search input
 
@@ -11,6 +10,25 @@ var blobUrls = [];            // track created blob URLs for cleanup
 var virtualList = null;       // VirtualList instance for sidebar
 var openSources = {};         // source_id → true if expanded
 var openGroups = {};          // group_id → true if expanded
+var activeSourceId = null;    // source_id containing the currently viewed email
+var activeGroupKey = null;    // "source_id_group_id" containing the currently viewed email
+
+/* ─── Persist accordion state in localStorage ─── */
+function loadAccordionState() {
+    try {
+        var s = localStorage.getItem('mbox-openSources');
+        var g = localStorage.getItem('mbox-openGroups');
+        if (s) openSources = JSON.parse(s);
+        if (g) openGroups = JSON.parse(g);
+    } catch (e) { /* ignore corrupt data */ }
+}
+
+function saveAccordionState() {
+    try {
+        localStorage.setItem('mbox-openSources', JSON.stringify(openSources));
+        localStorage.setItem('mbox-openGroups', JSON.stringify(openGroups));
+    } catch (e) { /* ignore quota errors */ }
+}
 
 /* ─── Search index (Lunr.js) ─── */
 var searchIndex = null;
@@ -314,6 +332,7 @@ async function init() {
     var searchIcon = document.querySelector('.search-icon');
     if (searchIcon) searchIcon.innerHTML = ICON_SEARCH;
 
+    loadAccordionState();
     await openDB();
 
     // Try remote API first (shared state across devices)
@@ -374,6 +393,7 @@ async function init() {
         buildSearchIndex();
     }
 
+    setupSidebarClickHandler();
     setupSearch();
     setupUpload();
     setupDragDrop();
@@ -708,7 +728,7 @@ function initVirtualList() {
         sourceHeader: function (item) {
             var source = item.source;
             var el = document.createElement('div');
-            el.className = 'source-header' + (openSources[source.source_id] ? ' open' : '');
+            el.className = 'source-header' + (openSources[source.source_id] ? ' open' : '') + (activeSourceId === source.source_id ? ' has-active' : '');
             el.dataset.sourceId = source.source_id;
             var newBadge = source.isNew ? '<span class="new-badge">New</span>' : '';
             el.innerHTML =
@@ -729,7 +749,7 @@ function initVirtualList() {
             var group = item.group;
             var gkey = item.sourceId + '_' + group.group_id;
             var el = document.createElement('div');
-            el.className = 'group-header' + (openGroups[gkey] ? ' open' : '');
+            el.className = 'group-header' + (openGroups[gkey] ? ' open' : '') + (activeGroupKey === gkey ? ' has-active' : '');
             el.dataset.sourceId = item.sourceId;
             el.dataset.groupId = group.group_id;
             el.innerHTML =
@@ -766,8 +786,10 @@ function initVirtualList() {
             return el;
         }
     });
+}
 
-    // Event delegation for clicks on the container
+function setupSidebarClickHandler() {
+    var container = document.getElementById('groups-list');
     container.addEventListener('click', function (e) {
         var target = e.target;
 
@@ -786,16 +808,7 @@ function initVirtualList() {
         if (srcH) {
             var sid = srcH.dataset.sourceId;
             openSources[sid] = !openSources[sid];
-            // Auto-open small groups when source is opened
-            if (openSources[sid]) {
-                var src = _currentSources.filter(function (s) { return s.source_id === sid; })[0];
-                if (src) {
-                    (src.groups || []).forEach(function (g) {
-                        var gk = sid + '_' + g.group_id;
-                        if (!(gk in openGroups) && g.email_ids.length <= AUTO_OPEN_GROUP_THRESHOLD) openGroups[gk] = true;
-                    });
-                }
-            }
+            saveAccordionState();
             rebuildVirtualList();
             return;
         }
@@ -805,6 +818,7 @@ function initVirtualList() {
         if (grpH) {
             var gkey = grpH.dataset.sourceId + '_' + grpH.dataset.groupId;
             openGroups[gkey] = !openGroups[gkey];
+            saveAccordionState();
             rebuildVirtualList();
             return;
         }
@@ -839,36 +853,33 @@ function renderSources(sources) {
         return;
     }
 
-    // Auto-open new sources and their small groups
-    sources.forEach(function (source) {
-        if (source.isNew || !(source.source_id in openSources)) {
-            openSources[source.source_id] = true;
-        }
-        if (openSources[source.source_id]) {
-            (source.groups || []).forEach(function (g) {
-                var gk = source.source_id + '_' + g.group_id;
-                if (!(gk in openGroups) && g.email_ids.length <= AUTO_OPEN_GROUP_THRESHOLD) {
-                    openGroups[gk] = true;
-                }
-            });
-        }
-    });
-
     if (!virtualList) initVirtualList();
     rebuildVirtualList();
 }
 
 /* ─── Email detail ─── */
 
-async function loadEmail(emailId) {
-    // Update active state in virtual list
-    document.querySelectorAll('.email-item.active').forEach(function (el) {
-        el.classList.remove('active');
+function updateActiveAncestors(emailId) {
+    activeSourceId = null;
+    activeGroupKey = null;
+    if (!emailId) return;
+    (_currentSources || []).forEach(function (source) {
+        (source.groups || []).forEach(function (group) {
+            if (group.email_ids.indexOf(emailId) !== -1) {
+                activeSourceId = source.source_id;
+                activeGroupKey = source.source_id + '_' + group.group_id;
+            }
+        });
     });
-    var active = document.querySelector('[data-email-id="' + emailId + '"]');
-    if (active) active.classList.add('active');
+}
 
+async function loadEmail(emailId) {
     currentEmailId = emailId;
+    updateActiveAncestors(emailId);
+
+    // Refresh virtual list to update active indicators
+    rebuildVirtualList();
+
     mobileShowDetail();
 
     // 1. LRU cache

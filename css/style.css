@@ -228,6 +228,11 @@ html, body {
     transform: rotate(90deg);
 }
 
+.source-header.has-active {
+    border-left: 3px solid var(--primary);
+    background: var(--primary-light);
+}
+
 .source-icon {
     width: 32px;
     height: 32px;
@@ -356,6 +361,12 @@ html, body {
 
 .group-header.open .arrow {
     transform: rotate(90deg);
+}
+
+.group-header.has-active {
+    border-left: 3px solid var(--primary);
+    background: var(--active-bg);
+    color: var(--primary);
 }
 
 .group-header .count {
