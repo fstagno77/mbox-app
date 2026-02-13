@@ -9,8 +9,8 @@
     --primary-light: #eef2ff;
     --primary-hover: #4338ca;
     --text: #111827;
-    --text-secondary: #6b7280;
-    --text-tertiary: #9ca3af;
+    --text-secondary: #4b5563;
+    --text-tertiary: #6b7280;
     --border: #f0f0f0;
     --border-strong: #e5e7eb;
     --hover: #f9fafb;
@@ -67,11 +67,96 @@ html, body {
 }
 
 .sidebar-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 12px;
     position: sticky;
     top: 0;
     z-index: 5;
     background: var(--sidebar-bg);
+}
+
+.sidebar-search .search-box {
+    flex: 1;
+    min-width: 0;
+}
+
+.sort-trigger {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.sort-trigger:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.sort-trigger-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.sort-popup {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 160px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    padding: 4px;
+    z-index: 20;
+}
+
+.sort-popup.open {
+    display: block;
+}
+
+.sort-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background var(--transition);
+    text-align: left;
+}
+
+.sort-option:hover {
+    background: var(--hover);
+}
+
+.sort-option.active {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.sort-option-arrow {
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 14px;
+    text-align: center;
+}
+
+.search-active .sort-trigger-wrap {
+    display: none;
 }
 
 .search-box {
@@ -183,19 +268,46 @@ html, body {
     min-width: 320px;
     background: var(--sidebar-bg);
     border-right: 1px solid var(--border-strong);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sidebar-content {
+    flex: 1;
     overflow-y: auto;
+    min-height: 0;
+}
+
+.sidebar-content::-webkit-scrollbar {
+    width: 6px;
+}
+.sidebar-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sidebar-content::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 3px;
+}
+
+.sidebar-footer {
+    padding: 8px 16px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    border-top: 1px solid var(--border);
+    background: var(--sidebar-bg);
     flex-shrink: 0;
 }
 
-.sidebar::-webkit-scrollbar {
-    width: 6px;
+.sidebar-footer a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
 }
-.sidebar::-webkit-scrollbar-track {
-    background: transparent;
-}
-.sidebar::-webkit-scrollbar-thumb {
-    background: var(--border-strong);
-    border-radius: 3px;
+
+.sidebar-footer a:hover {
+    text-decoration: underline;
 }
 
 /* Source accordion (top level) */
@@ -857,6 +969,142 @@ html, body {
     border-color: #dc2626;
 }
 
+/* Changelog modal */
+.changelog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1003;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.changelog-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.changelog-modal {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+    max-width: 480px;
+    width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+}
+
+.changelog-overlay.visible .changelog-modal {
+    transform: scale(1);
+}
+
+.changelog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px 0;
+}
+
+.changelog-header h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.changelog-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    line-height: 1;
+}
+
+.changelog-close:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.changelog-body {
+    padding: 16px 24px 24px;
+    overflow-y: auto;
+}
+
+.changelog-version {
+    margin-bottom: 16px;
+}
+
+.changelog-version:last-child {
+    margin-bottom: 0;
+}
+
+.changelog-version-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 4px;
+}
+
+.changelog-version-date {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+}
+
+.changelog-version ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.changelog-version li {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    padding: 4px 0 4px 16px;
+    position: relative;
+}
+
+.changelog-version li::before {
+    content: "\2022";
+    color: var(--primary);
+    font-weight: 700;
+    position: absolute;
+    left: 0;
+}
+
+.changelog-footer {
+    padding: 0 24px 20px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.changelog-cta {
+    padding: 8px 20px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--transition);
+}
+
+.changelog-cta:hover {
+    background: var(--primary-hover);
+}
+
 /* Loading overlay */
 .loading-overlay {
     position: fixed;
@@ -928,6 +1176,7 @@ html, body {
         inset: 0;
         z-index: 2;
         transition: transform 0.25s ease, opacity 0.25s ease;
+        overflow: hidden;
     }
 
     /* Detail panel: full-screen, hidden off-screen by default */

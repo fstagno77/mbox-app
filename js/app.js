@@ -12,6 +12,8 @@ var openSources = {};         // source_id → true if expanded
 var openGroups = {};          // group_id → true if expanded
 var activeSourceId = null;    // source_id containing the currently viewed email
 var activeGroupKey = null;    // "source_id_group_id" containing the currently viewed email
+var currentSort = 'date';     // 'date' or 'alpha'
+var currentSortDir = 'desc';  // 'asc' or 'desc'
 
 /* ─── Persist accordion state in localStorage ─── */
 function loadAccordionState() {
@@ -33,6 +35,32 @@ function saveAccordionState() {
 /* ─── Search index (Lunr.js) ─── */
 var searchIndex = null;
 
+function expandAttachmentNames(names) {
+    var parts = [];
+    (names || []).forEach(function (fn) {
+        if (!fn) return;
+        parts.push(fn);                         // "fattura.pdf"
+        var dot = fn.lastIndexOf('.');
+        if (dot > 0) {
+            parts.push(fn.substring(0, dot));    // "fattura"
+            parts.push(fn.substring(dot + 1));   // "pdf"
+        }
+    });
+    return parts.join(' ');
+}
+
+function expandSender(sender) {
+    if (!sender) return '';
+    // "fatture@fornitore.it" → "fatture@fornitore.it fatture fornitore"
+    // Lunr tokenizes on whitespace/hyphens only, so "@" and "." stay inside tokens.
+    // Expanding lets users search by domain or local part.
+    var parts = [sender];
+    sender.split(/[@.]+/).forEach(function (t) {
+        if (t && t.length > 1) parts.push(t);
+    });
+    return parts.join(' ');
+}
+
 function buildSearchIndex() {
     var docs = [];
     (catalog.sources || []).forEach(function (source) {
@@ -40,17 +68,24 @@ function buildSearchIndex() {
             docs.push({
                 id: s.email_id,
                 subject: s.subject || '',
-                sender: s.sender || '',
-                clean_subject: s.clean_subject || ''
+                sender: expandSender(s.sender),
+                clean_subject: s.clean_subject || '',
+                attachments: expandAttachmentNames(s.attachment_names)
             });
         });
     });
 
     searchIndex = lunr(function () {
+        // Remove the English stemmer — the content is Italian, and the Porter
+        // stemmer mangles Italian words causing search misses.
+        this.pipeline.remove(lunr.stemmer);
+        this.searchPipeline.remove(lunr.stemmer);
+
         this.ref('id');
         this.field('subject', { boost: 10 });
         this.field('clean_subject', { boost: 5 });
         this.field('sender', { boost: 3 });
+        this.field('attachments', { boost: 2 });
 
         docs.forEach(function (doc) {
             this.add(doc);
@@ -99,6 +134,78 @@ function getFileIcon(filename) {
     return ICON_FILE;
 }
 var ICON_SEARCH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 111.06-1.06l2.755 2.754a.75.75 0 11-1.06 1.06l-2.755-2.754zM10.5 7a3.5 3.5 0 11-7 0 3.5 3.5 0 017 0z" clip-rule="evenodd"/></svg>';
+
+/* ─── Version & Changelog ─── */
+var APP_VERSION = '0.3';
+
+var CHANGELOG = [
+    {
+        version: '0.3',
+        date: 'Febbraio 2026',
+        changes: [
+            'Ricerca estesa: ora puoi cercare le email anche per nome dei file allegati (es. "fattura.pdf")',
+            'Ricerca pi\u00f9 precisa: trova correttamente parole dentro date e codici (es. "2026" in "12/2026")',
+            'Ordinamento sorgenti per data di caricamento o nome file',
+            'Le sezioni aperte nella lista vengono ricordate tra una visita e l\'altra',
+            'Indicazione visiva dell\'email e del gruppo attualmente selezionato',
+            'Caricamento progressivo: gli archivi con molte sorgenti si aprono pi\u00f9 velocemente',
+            'Nuova navigazione a schermo intero su dispositivi mobili',
+        ]
+    }
+];
+
+function renderChangelogContent() {
+    var html = '';
+    CHANGELOG.forEach(function (entry) {
+        html += '<div class="changelog-version">' +
+            '<div class="changelog-version-title">v' + entry.version + '</div>' +
+            '<div class="changelog-version-date">' + entry.date + '</div>' +
+            '<ul>';
+        entry.changes.forEach(function (c) {
+            html += '<li>' + c + '</li>';
+        });
+        html += '</ul></div>';
+    });
+    return html;
+}
+
+function showChangelogModal() {
+    var overlay = document.getElementById('changelog-overlay');
+    var body = document.getElementById('changelog-body');
+    body.innerHTML = renderChangelogContent();
+    overlay.classList.add('visible');
+
+    function close() {
+        overlay.classList.remove('visible');
+        overlay.removeEventListener('click', onBackdrop);
+        document.getElementById('changelog-close').removeEventListener('click', close);
+        document.getElementById('changelog-cta').removeEventListener('click', close);
+        document.removeEventListener('keydown', onKey);
+    }
+    function onBackdrop(e) { if (e.target === overlay) close(); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+
+    document.getElementById('changelog-close').addEventListener('click', close);
+    document.getElementById('changelog-cta').addEventListener('click', close);
+    overlay.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+}
+
+function checkChangelog() {
+    var lastSeen = localStorage.getItem('mbox-changelog-version');
+    if (lastSeen !== APP_VERSION) {
+        showChangelogModal();
+        localStorage.setItem('mbox-changelog-version', APP_VERSION);
+    }
+}
+
+function setupChangelog() {
+    document.getElementById('changelog-link').addEventListener('click', function (e) {
+        e.preventDefault();
+        showChangelogModal();
+    });
+    checkChangelog();
+}
 
 /* ─── Remote API client (Netlify Functions + Blobs) ─── */
 var API_BASE = '/.netlify/functions';
@@ -273,6 +380,7 @@ function populateStoreFromCatalog() {
                 date: s.date,
                 clean_subject: s.clean_subject,
                 attachment_count: s.attachment_count,
+                attachment_names: s.attachment_names || [],
                 pec_provider: s.pec_provider,
                 source_file: s.source_file
             };
@@ -361,6 +469,7 @@ async function init() {
                             date: e.date,
                             clean_subject: e.clean_subject,
                             attachment_count: e.attachment_count,
+                            attachment_names: e.attachment_names || [],
                             pec_provider: e.pec_provider,
                             source_file: e.source_file
                         };
@@ -395,9 +504,11 @@ async function init() {
 
     setupSidebarClickHandler();
     setupSearch();
+    setupSort();
     setupUpload();
     setupDragDrop();
     setupMobileNav();
+    setupChangelog();
 }
 
 /* ─── File handling ─── */
@@ -423,6 +534,9 @@ function handleParseResult(result) {
     // Store only metadata in emailStore; cache full emails in LRU
     Object.keys(result.emailDataMap).forEach(function (id) {
         var email = result.emailDataMap[id];
+        var attNames = (email.attachments || [])
+            .filter(function (a) { return !a.is_inline; })
+            .map(function (a) { return a.filename; });
         emailStore[id] = {
             email_id: email.email_id,
             subject: email.subject,
@@ -431,6 +545,7 @@ function handleParseResult(result) {
             date: email.date,
             clean_subject: email.clean_subject,
             attachment_count: (email.attachments || []).length,
+            attachment_names: attNames,
             pec_provider: email.pec_provider,
             source_file: email.source_file
         };
@@ -676,11 +791,27 @@ function renderStats() {
         total + ' email in ' + n + ' sorgent' + (n === 1 ? 'e' : 'i');
 }
 
+function sortSources(sources) {
+    var sorted = sources.slice();
+    var dir = currentSortDir === 'asc' ? 1 : -1;
+    if (currentSort === 'alpha') {
+        sorted.sort(function (a, b) {
+            return dir * (a.source_file || '').localeCompare(b.source_file || '');
+        });
+    } else {
+        sorted.sort(function (a, b) {
+            return dir * ((a._uploaded_ts || 0) - (b._uploaded_ts || 0));
+        });
+    }
+    return sorted;
+}
+
 function flattenSources(sources) {
     var flat = [];
     if (!sources) return flat;
 
-    sources.forEach(function (source) {
+    var sorted = sortSources(sources);
+    sorted.forEach(function (source) {
         var summaryMap = {};
         (source.emails_summary || []).forEach(function (s) { summaryMap[s.email_id] = s; });
 
@@ -720,7 +851,7 @@ function flattenSources(sources) {
 
 function initVirtualList() {
     var container = document.getElementById('groups-list');
-    var scrollContainer = document.getElementById('sidebar');
+    var scrollContainer = document.getElementById('sidebar-content');
 
     if (virtualList) virtualList.destroy();
 
@@ -1032,19 +1163,89 @@ function setupSearch() {
     });
 }
 
-function searchEmails(query) {
-    if (!searchIndex) buildSearchIndex();
+var SORT_ICON_DESC = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14">' +
+    '<path d="M3.5 2a.5.5 0 0 1 .5.5v9.793l1.146-1.147a.5.5 0 0 1 .708.708l-2 2a.5.5 0 0 1-.708 0l-2-2a.5.5 0 0 1 .708-.708L3 12.293V2.5a.5.5 0 0 1 .5-.5z"/>' +
+    '<path d="M7.5 3a.5.5 0 0 0 0 1h1a.5.5 0 0 0 0-1h-1zm0 3a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1h-3zm0 3a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5zm0 3a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1h-7z"/></svg>';
 
-    var lunrResults;
-    try {
-        lunrResults = searchIndex.search(query + '*');
-    } catch (e) {
-        try {
-            lunrResults = searchIndex.search(query.replace(/[:\*\~\^]/g, ''));
-        } catch (e2) {
-            lunrResults = [];
-        }
+var SORT_ICON_ASC = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14">' +
+    '<path d="M3.5 14a.5.5 0 0 1-.5-.5V3.707L1.854 4.854a.5.5 0 1 1-.708-.708l2-2a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1-.708.708L4 3.707V13.5a.5.5 0 0 1-.5.5z"/>' +
+    '<path d="M7.5 3a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1h-7zm0 3a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5zm0 3a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1h-3zm0 3a.5.5 0 0 0 0 1h1a.5.5 0 0 0 0-1h-1z"/></svg>';
+
+function setupSort() {
+    var trigger = document.getElementById('sort-trigger');
+    var popup = document.getElementById('sort-popup');
+    if (!trigger || !popup) return;
+
+    function updateTriggerIcon() {
+        trigger.innerHTML = currentSortDir === 'asc' ? SORT_ICON_ASC : SORT_ICON_DESC;
     }
+
+    function updatePopup() {
+        popup.querySelectorAll('.sort-option').forEach(function (opt) {
+            var mode = opt.getAttribute('data-sort');
+            opt.classList.toggle('active', mode === currentSort);
+            var arrow = opt.querySelector('.sort-option-arrow');
+            if (arrow) {
+                arrow.textContent = mode === currentSort
+                    ? (currentSortDir === 'asc' ? '\u2191' : '\u2193')
+                    : '';
+            }
+        });
+    }
+
+    function closePopup() {
+        popup.classList.remove('open');
+        document.removeEventListener('click', onOutside, true);
+    }
+
+    function onOutside(e) {
+        if (!popup.contains(e.target) && !trigger.contains(e.target)) closePopup();
+    }
+
+    trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var isOpen = popup.classList.toggle('open');
+        if (isOpen) {
+            updatePopup();
+            document.addEventListener('click', onOutside, true);
+        } else {
+            document.removeEventListener('click', onOutside, true);
+        }
+    });
+
+    popup.addEventListener('click', function (e) {
+        var opt = e.target.closest('.sort-option');
+        if (!opt) return;
+        var mode = opt.getAttribute('data-sort');
+        if (mode === currentSort) {
+            currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSort = mode;
+            currentSortDir = mode === 'date' ? 'desc' : 'asc';
+        }
+        updatePopup();
+        updateTriggerIcon();
+        rebuildVirtualList();
+        closePopup();
+    });
+
+    updateTriggerIcon();
+}
+
+function searchEmails(query) {
+    if (!searchIndex) {
+        try { buildSearchIndex(); } catch (e) { console.error('buildSearchIndex failed:', e); }
+    }
+    if (!searchIndex) return [];
+
+    var safeQuery = query.replace(/[:\*\~\^]/g, '');
+    var lunrResults = [];
+
+    // Wildcard prefix search — stemmer is disabled so tokens are stored as-is,
+    // and "circolare*" correctly matches "circolare" in the index.
+    try {
+        lunrResults = searchIndex.search(safeQuery + '*');
+    } catch (e) { /* ignore parse errors */ }
 
     // Map Lunr results to summary objects
     var resultIds = {};
@@ -1060,6 +1261,22 @@ function searchEmails(query) {
             }
         });
     });
+
+    // Always merge substring matches so tokens Lunr's tokenizer misses
+    // (e.g. "2026" inside "12/2026", words joined by special chars) are found.
+    if (safeQuery.length >= 2) {
+        var lower = safeQuery.toLowerCase();
+        (catalog.sources || []).forEach(function (s) {
+            (s.emails_summary || []).forEach(function (e) {
+                if (seen[e.email_id]) return;
+                var hay = ((e.subject || '') + ' ' + (e.clean_subject || '') + ' ' + (e.sender || '') + ' ' + (e.attachment_names || []).join(' ')).toLowerCase();
+                if (hay.indexOf(lower) !== -1) {
+                    summaries.push(e);
+                    seen[e.email_id] = true;
+                }
+            });
+        });
+    }
 
     if (summaries.length === 0) {
         if (virtualList) virtualList.destroy();

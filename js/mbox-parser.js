@@ -488,14 +488,19 @@ var MboxParser = (function () {
                 source_id: sourceId,
                 source_file: sourceFile,
                 uploaded_at: formatDate(now.toString()),
+                _uploaded_ts: now.getTime(),
                 email_count: emails.length,
                 groups: groups,
                 emails_summary: emails.map(function (e) {
+                    var attNames = e.attachments
+                        .filter(function (a) { return !a.is_inline; })
+                        .map(function (a) { return a.filename; });
                     return {
                         email_id: e.email_id, subject: e.subject,
                         sender: e.sender, date: e.date,
                         clean_subject: e.clean_subject,
                         attachment_count: e.attachments.length,
+                        attachment_names: attNames,
                         pec_provider: e.pec_provider,
                         source_file: e.source_file,
                     };

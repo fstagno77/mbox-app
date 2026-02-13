@@ -18,14 +18,32 @@
 
     <div class="main-layout">
         <aside class="sidebar" id="sidebar">
-            <div class="sidebar-search">
-                <div class="search-box">
-                    <input type="text" id="search-input" placeholder="Cerca nelle email..." autocomplete="off">
-                    <span class="search-icon"></span>
-                    <button type="button" class="search-clear" id="search-clear" title="Cancella ricerca">&times;</button>
+            <div class="sidebar-content" id="sidebar-content">
+                <div class="sidebar-search">
+                    <div class="search-box">
+                        <input type="text" id="search-input" placeholder="Cerca email..." autocomplete="off">
+                        <span class="search-icon"></span>
+                        <button type="button" class="search-clear" id="search-clear" title="Cancella ricerca">&times;</button>
+                    </div>
+                    <div class="sort-trigger-wrap" id="sort-bar">
+                        <button type="button" class="sort-trigger" id="sort-trigger" title="Ordina sorgenti"></button>
+                        <div class="sort-popup" id="sort-popup">
+                            <button type="button" class="sort-option active" data-sort="date">
+                                <span class="sort-option-label">Data caricamento</span>
+                                <span class="sort-option-arrow"></span>
+                            </button>
+                            <button type="button" class="sort-option" data-sort="alpha">
+                                <span class="sort-option-label">Nome file</span>
+                                <span class="sort-option-arrow"></span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
+                <div id="groups-list"></div>
             </div>
-            <div id="groups-list"></div>
+            <div class="sidebar-footer">
+                v0.3 — <a href="#" id="changelog-link">Changelog</a>
+            </div>
         </aside>
 
         <main class="detail-panel" id="detail-panel">
@@ -107,6 +125,20 @@
         <div class="confirm-actions">
             <button class="confirm-btn confirm-cancel" id="confirm-cancel">Annulla</button>
             <button class="confirm-btn confirm-delete" id="confirm-ok">Elimina</button>
+        </div>
+    </div>
+</div>
+
+<!-- Changelog modal -->
+<div class="changelog-overlay" id="changelog-overlay">
+    <div class="changelog-modal">
+        <div class="changelog-header">
+            <h2>Novit&agrave;</h2>
+            <button class="changelog-close" id="changelog-close">&times;</button>
+        </div>
+        <div class="changelog-body" id="changelog-body"></div>
+        <div class="changelog-footer">
+            <button class="changelog-cta" id="changelog-cta">Ho capito</button>
         </div>
     </div>
 </div>
